@@ -1,23 +1,73 @@
 import sqlite3
 import os
 import json
+import base64
+import hashlib
+import hmac
+import secrets
+
+# 数据库默认位置基于本文件解析，不再依赖进程 cwd。
+# 历史上因为用相对路径 "interview.db"，换目录启动就会静默新建空库，
+# 工作区里因此留下了 4 个 interview.db（其中 3 个是空的）。
+_DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "interview.db")
+
+# 用户可见的公开字段白名单：password / password_hash / password_salt 一律不出库。
+USER_PUBLIC_COLUMNS = ("id", "username", "email", "avatar", "phone", "role", "created_at")
+
+_PBKDF2_ITERATIONS = 260000
+
+
+def hash_password(password, salt=None):
+    """用 PBKDF2-HMAC-SHA256 派生密码哈希，返回 (hex 哈希, hex 盐)。"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), _PBKDF2_ITERATIONS)
+    return dk.hex(), salt
+
+
+def verify_password(password, password_hash, salt):
+    """定时安全地校验密码。"""
+    if not password_hash or not salt:
+        return False
+    candidate, _ = hash_password(password, salt)
+    return hmac.compare_digest(candidate, password_hash)
+
 
 class Database:
-    def __init__(self, db_path="interview.db"):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path or os.environ.get("INTERVIEW_DB_PATH") or _DEFAULT_DB_PATH
         self.init_db()
+
+    def _connect(self, autocommit=False):
+        """统一的连接入口：带写锁等待、WAL 与外键约束。
+
+        原先 43 处 sqlite3.connect 都没有 timeout，也没开 WAL；
+        改成 asyncio.to_thread 后会有多线程并发写，容易撞 "database is locked"。
+
+        autocommit=True 保留原先 isolation_level=None 的语义 —— 有 11 个方法
+        （add_message、各 update_* 计数器等）从不调用 commit()，靠自动提交生效，
+        不能改成延迟事务，否则写入会被静默丢弃。
+        """
+        conn = sqlite3.connect(
+            self.db_path,
+            timeout=10,
+            isolation_level=None if autocommit else "",
+        )
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=10000")
+        return conn
 
     def get_connection(self):
         """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return self._connect()
 
     def init_db(self):
         """初始化数据库"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
-        
+
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,59 +280,156 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_selected_questions_type ON selected_questions (question_type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_resume_evaluations_interview_id ON resume_evaluations (interview_id)')
 
+        # 对话式评估报告：形状为 {strengths, weaknesses, recommendations}，
+        # 与 evaluation_reports 表（overall_score/overall_level 均 NOT NULL）不兼容，
+        # 因此单独建表。此前该报告只存在进程内 dict 里，重启即丢，
+        # 端点会永久返回 status="generating"。
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversation_reports (
+            interview_id INTEGER PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'completed',
+            payload TEXT DEFAULT NULL,
+            error TEXT DEFAULT NULL,
+            job_type TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (interview_id) REFERENCES interviews (id)
+        )
+        ''')
+
+        conn.commit()
+        self._migrate_user_credentials(conn)
         conn.commit()
         conn.close()
-    
-    def add_user(self, username, password, email, phone=None, avatar=None):
-        """添加用户"""
-        conn = sqlite3.connect(self.db_path)
+
+    def _migrate_user_credentials(self, conn):
+        """把明文密码迁移成 PBKDF2 哈希，并补上 role 列。幂等，可重复执行。"""
+        cursor = conn.cursor()
+        existing = {row[1] for row in cursor.execute("PRAGMA table_info(users)")}
+
+        for column, ddl in (
+            ("password_hash", "ALTER TABLE users ADD COLUMN password_hash TEXT DEFAULT NULL"),
+            ("password_salt", "ALTER TABLE users ADD COLUMN password_salt TEXT DEFAULT NULL"),
+            ("role", "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"),
+        ):
+            if column not in existing:
+                cursor.execute(ddl)
+
+        # 仅处理还留着明文、且尚未生成哈希的账号
+        pending = cursor.execute(
+            "SELECT id, username, password FROM users "
+            "WHERE password IS NOT NULL AND password != '' AND (password_hash IS NULL OR password_hash = '')"
+        ).fetchall()
+
+        for row in pending:
+            digest, salt = hash_password(row["password"])
+            cursor.execute(
+                "UPDATE users SET password_hash = ?, password_salt = ?, password = '' WHERE id = ?",
+                (digest, salt, row["id"]),
+            )
+
+        # 历史上 role 是靠用户名字符串现算的（ADMIN_USERS 集合），
+        # 任何人注册叫 admin 的账号就是管理员。这里把既有的管理员账号一次性落到 role 列，
+        # 之后 role 只认数据库，不认用户名。
+        cursor.execute(
+            "UPDATE users SET role = 'admin' WHERE role != 'admin' AND lower(username) IN ('admin', 'administrator', '管理员')"
+        )
+
+        if pending:
+            print(f"[迁移] 已将 {len(pending)} 个账号的明文密码转为 PBKDF2 哈希")
+
+    def add_user(self, username, password, email, phone=None, avatar=None, role="user"):
+        """添加用户（密码以 PBKDF2 哈希存储，明文列留空）"""
+        digest, salt = hash_password(password)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
-            INSERT INTO users (username, password, email, phone, avatar) VALUES (?, ?, ?, ?, ?)
-            ''', (username, password, email, phone, avatar))
+            INSERT INTO users (username, password, password_hash, password_salt, email, phone, avatar, role)
+            VALUES (?, '', ?, ?, ?, ?, ?, ?)
+            ''', (username, digest, salt, email, phone, avatar, role))
             conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError:
             return None
         finally:
             conn.close()
-    
+
     def login_user(self, username, password):
-        """用户登录"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        """用户登录：先按用户名取记录，再做定时安全的哈希比对。
+
+        原实现是 `WHERE username = ? AND password = ?`，即明文比对。
+        """
+        conn = self._connect()
         cursor = conn.cursor()
         try:
-            cursor.execute('''
-            SELECT * FROM users WHERE username = ? AND password = ?
-            ''', (username, password))
-            user = cursor.fetchone()
-            if user:
-                return dict(user)
-            return None
+            row = cursor.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+            if not row:
+                return None
+            user = dict(row)
+            if not verify_password(password, user.get("password_hash"), user.get("password_salt")):
+                return None
+            return {k: user.get(k) for k in USER_PUBLIC_COLUMNS}
         finally:
             conn.close()
-    
+
     def get_user_by_id(self, user_id):
-        """根据ID获取用户信息"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        """根据ID获取用户信息（不含任何口令字段）"""
+        conn = self._connect()
         cursor = conn.cursor()
         try:
-            cursor.execute('''
-            SELECT * FROM users WHERE id = ?
-            ''', (user_id,))
+            cursor.execute(
+                "SELECT %s FROM users WHERE id = ?" % ", ".join(USER_PUBLIC_COLUMNS),
+                (user_id,),
+            )
             user = cursor.fetchone()
             if user:
                 return dict(user)
             return None
         finally:
             conn.close()
-    
+
+    def save_conversation_report(self, interview_id, status, payload=None, error=None, job_type=None):
+        """保存对话式评估报告（幂等覆盖）"""
+        conn = self._connect()
+        try:
+            conn.execute('''
+            INSERT INTO conversation_reports (interview_id, status, payload, error, job_type)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(interview_id) DO UPDATE SET
+                status = excluded.status,
+                payload = excluded.payload,
+                error = excluded.error,
+                job_type = excluded.job_type,
+                created_at = CURRENT_TIMESTAMP
+            ''', (interview_id, status, json.dumps(payload, ensure_ascii=False) if payload is not None else None, error, job_type))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def get_conversation_report(self, interview_id):
+        """读取对话式评估报告，返回 None 表示尚未生成过"""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT status, payload, error, job_type, created_at FROM conversation_reports WHERE interview_id = ?",
+                (interview_id,),
+            ).fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            if result.get("payload"):
+                try:
+                    result["payload"] = json.loads(result["payload"])
+                except (ValueError, TypeError):
+                    result["payload"] = None
+            return result
+        finally:
+            conn.close()
+
     def update_user(self, user_id, username=None, email=None, phone=None, avatar=None):
         """更新用户信息"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             updates = []
@@ -314,7 +461,7 @@ class Database:
     
     def start_interview(self, user_id, position, round_info, job_type=None, experience=None, interviewer_role=None, pressure_level=1, duration=10, resume_text=None, target_company=None):
         """开始面试"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -330,7 +477,7 @@ class Database:
     
     def add_message(self, interview_id, sender, content):
         """添加消息"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('INSERT INTO messages (interview_id, sender, content) VALUES (?, ?, ?)', (interview_id, sender, content))
@@ -339,8 +486,7 @@ class Database:
     
     def get_interview(self, interview_id):
         """获取面试信息"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -355,7 +501,7 @@ class Database:
     
     def update_interview_phase(self, interview_id, phase):
         """更新面试阶段"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET phase = ? WHERE id = ?', (phase, interview_id))
@@ -364,7 +510,7 @@ class Database:
     
     def update_candidate_question_count(self, interview_id, count):
         """更新候选人提问计数"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET candidate_question_count = ? WHERE id = ?', (count, interview_id))
@@ -374,7 +520,7 @@ class Database:
     def update_interview_config(self, interview_id, config):
         """更新面试配置"""
         import json
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET interview_config = ? WHERE id = ?', (json.dumps(config), interview_id))
@@ -383,7 +529,7 @@ class Database:
     
     def update_self_intro_question_count(self, interview_id, count):
         """更新自我介绍问题计数"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET self_intro_question_count = ? WHERE id = ?', (count, interview_id))
@@ -392,7 +538,7 @@ class Database:
     
     def update_tech_question_count(self, interview_id, count):
         """更新技术问题计数"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET tech_question_count = ? WHERE id = ?', (count, interview_id))
@@ -401,7 +547,7 @@ class Database:
     
     def update_current_question_index(self, interview_id, index):
         """更新当前问题索引"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET current_question_index = ? WHERE id = ?', (index, interview_id))
@@ -410,7 +556,7 @@ class Database:
     
     def update_current_followup_count(self, interview_id, count):
         """更新当前追问计数"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET current_followup_count = ? WHERE id = ?', (count, interview_id))
@@ -419,7 +565,7 @@ class Database:
     
     def update_max_followups_per_question(self, interview_id, max_count):
         """更新每个问题的最大追问次数"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('UPDATE interviews SET max_followups_per_question = ? WHERE id = ?', (max_count, interview_id))
@@ -428,7 +574,7 @@ class Database:
     
     def add_message_metadata(self, interview_id, metadata_key, metadata_value):
         """添加消息元数据"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('INSERT INTO messages (interview_id, sender, content, metadata) VALUES (?, ?, ?, ?)',
@@ -438,8 +584,7 @@ class Database:
     
     def get_user_interviews(self, user_id):
         """获取用户的所有面试记录"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -456,8 +601,7 @@ class Database:
     
     def get_messages(self, interview_id):
         """获取面试消息"""
-        conn = sqlite3.connect(self.db_path, isolation_level=None)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect(autocommit=True)
         cursor = conn.cursor()
         try:
             cursor.execute('SELECT sender, content, created_at FROM messages WHERE interview_id = ? ORDER BY created_at', (interview_id,))
@@ -468,7 +612,7 @@ class Database:
     
     def save_evaluation_report(self, interview_id, overall_score, overall_level, content_evaluation, expression_evaluation, highlights, suggestions):
         """保存评估报告"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -490,7 +634,7 @@ class Database:
     
     def save_improvement_plan(self, interview_id, weaknesses, suggestions, resources, learning_plan):
         """保存提升计划"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -507,8 +651,7 @@ class Database:
     
     def get_evaluation_report(self, interview_id):
         """获取评估报告"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -532,8 +675,7 @@ class Database:
     
     def get_improvement_plan(self, interview_id):
         """获取提升计划"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -557,7 +699,7 @@ class Database:
     
     def update_resume_info(self, interview_id, resume_info):
         """更新简历信息"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -569,7 +711,7 @@ class Database:
     
     def update_resume_based_questions(self, interview_id, questions):
         """更新基于简历的问题"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -581,7 +723,7 @@ class Database:
     
     def delete_interview(self, interview_id):
         """删除面试记录及其相关数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('DELETE FROM improvement_plans WHERE interview_id = ?', (interview_id,))
@@ -599,7 +741,7 @@ class Database:
     
     def add_exam_question(self, question, answer, analysis, category):
         """添加事业单位真题"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -612,8 +754,7 @@ class Database:
     
     def get_exam_questions(self, category=None, limit=None):
         """获取事业单位真题列表"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             query = 'SELECT * FROM exam_questions'
@@ -637,8 +778,7 @@ class Database:
     
     def search_exam_questions(self, keyword, category=None):
         """搜索事业单位真题"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             query = 'SELECT * FROM exam_questions WHERE question LIKE ?'
@@ -658,7 +798,7 @@ class Database:
 
     def add_selected_question(self, question_type, question, options, correct_answer, analysis, category, difficulty='medium'):
         """添加精选题库题目"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -672,8 +812,7 @@ class Database:
 
     def get_selected_questions(self, category=None, question_type=None, difficulty=None, limit=None):
         """获取精选题库列表"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             query = 'SELECT * FROM selected_questions WHERE 1=1'
@@ -705,8 +844,7 @@ class Database:
 
     def get_selected_question_by_id(self, question_id):
         """根据ID获取精选题目"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('SELECT * FROM selected_questions WHERE id = ?', (question_id,))
@@ -719,7 +857,7 @@ class Database:
 
     def delete_selected_question(self, question_id):
         """删除精选题目"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('DELETE FROM selected_questions WHERE id = ?', (question_id,))
@@ -733,7 +871,7 @@ class Database:
 
     def get_selected_questions_count(self, category=None, question_type=None):
         """获取精选题目数量"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             query = 'SELECT COUNT(*) FROM selected_questions WHERE 1=1'
@@ -755,8 +893,7 @@ class Database:
 
     def search_selected_questions(self, keyword, category=None, question_type=None):
         """搜索精选题目"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             query = 'SELECT * FROM selected_questions WHERE question LIKE ?'
@@ -780,7 +917,7 @@ class Database:
 
     def save_resume_evaluation(self, interview_id, overall_score, dimensions, strengths, improvements, template_suggestion):
         """保存简历评价"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -798,8 +935,7 @@ class Database:
 
     def get_resume_evaluation(self, interview_id):
         """获取简历评价"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -821,7 +957,7 @@ class Database:
 
 
     def save_face_analysis(self, interview_id, emotion, confidence, focus, suggestion, raw_response=None, timestamp=None):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -834,8 +970,7 @@ class Database:
             conn.close()
 
     def get_face_analyses(self, interview_id):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -882,7 +1017,7 @@ class Database:
     def save_speech_record(self, interview_id, message_id=None, audio_data=None, audio_format='webm', duration=0, 
                             speech_rate=0, confidence_score=0, tone_type=None, overall_analysis=None):
         """保存语音记录"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('''
@@ -898,8 +1033,7 @@ class Database:
     
     def get_speech_records(self, interview_id):
         """获取面试的语音记录"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('SELECT * FROM speech_records WHERE interview_id = ? ORDER BY created_at', (interview_id,))
@@ -910,8 +1044,7 @@ class Database:
     
     def get_speech_record_by_id(self, record_id):
         """根据ID获取语音记录"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute('SELECT * FROM speech_records WHERE id = ?', (record_id,))

@@ -1,17 +1,25 @@
 """
 管理员端 API 扩展
-这些 API 需要管理员权限才能访问
+这些 API 需要管理员权限才能访问（由 require_admin 依赖强制，此前完全无鉴权）
 """
 
-def register_admin_routes(app):
-    """注册管理员端 API 路由"""
+from fastapi import Depends, HTTPException
+
+from auth import get_current_user, require_admin
+
+def register_admin_routes(app, get_db):
+    """注册管理员端 API 路由
+
+    get_db: 返回数据库连接的可调用对象（与 prep_center_api / favorites_api 一致）。
+    此前本模块用 sqlite3.connect('interview.db') 硬编码相对路径，绕过了 Database 类，
+    导致数据库路径修复与 WAL/timeout 设置对管理后台完全无效。
+    """
 
     @app.get("/api/admin/stats")
-    async def get_admin_stats():
+    async def get_admin_stats(_admin: dict = Depends(require_admin)):
         """获取管理后台统计数据"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             total_users = 0
@@ -69,11 +77,10 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/users")
-    async def get_admin_users(page: int = 1, page_size: int = 20, keyword: str = ""):
+    async def get_admin_users(page: int = 1, page_size: int = 20, keyword: str = "", _admin: dict = Depends(require_admin)):
         """获取用户列表（管理后台）"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             offset = (page - 1) * page_size
@@ -98,7 +105,13 @@ def register_admin_routes(app):
 
             users = cursor.fetchall()
 
-            cursor.execute("SELECT COUNT(*) FROM users" + (" WHERE username LIKE ? OR email LIKE ?" if keyword else ""))
+            if keyword:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM users WHERE username LIKE ? OR email LIKE ?",
+                    (f"%{keyword}%", f"%{keyword}%"),
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM users")
             total = cursor.fetchone()[0]
 
             conn.close()
@@ -123,11 +136,10 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/interviews")
-    async def get_admin_interviews(page: int = 1, page_size: int = 20, user_id: int = None):
+    async def get_admin_interviews(page: int = 1, page_size: int = 20, user_id: int = None, _admin: dict = Depends(require_admin)):
         """获取面试记录列表（管理后台）"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             offset = (page - 1) * page_size
@@ -187,11 +199,10 @@ def register_admin_routes(app):
 
 
     @app.delete("/api/admin/interviews/{interview_id}")
-    async def delete_interview(interview_id: int):
+    async def delete_interview(interview_id: int, _admin: dict = Depends(require_admin)):
         """删除面试记录"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("DELETE FROM interviews WHERE id = ?", (interview_id,))
@@ -208,12 +219,12 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/interview-detail")
-    async def get_admin_interview_detail(interview_id: int):
+    async def get_admin_interview_detail(interview_id: int, _admin: dict = Depends(require_admin)):
         """获取面试详情（管理后台）"""
         try:
             import sqlite3
             import json
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -317,11 +328,10 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/exam-questions")
-    async def get_admin_exam_questions(page: int = 1, page_size: int = 20, category: str = ""):
+    async def get_admin_exam_questions(page: int = 1, page_size: int = 20, category: str = "", _admin: dict = Depends(require_admin)):
         """获取真题列表（管理后台）"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             offset = (page - 1) * page_size
@@ -373,11 +383,10 @@ def register_admin_routes(app):
 
 
     @app.post("/api/admin/exam-questions")
-    async def create_exam_question(question: str, answer: str, analysis: str, category: str):
+    async def create_exam_question(question: str, answer: str, analysis: str, category: str, _admin: dict = Depends(require_admin)):
         """创建真题"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -395,11 +404,10 @@ def register_admin_routes(app):
 
 
     @app.put("/api/admin/exam-questions/{question_id}")
-    async def update_exam_question(question_id: int, question: str, answer: str, analysis: str, category: str):
+    async def update_exam_question(question_id: int, question: str, answer: str, analysis: str, category: str, _admin: dict = Depends(require_admin)):
         """更新真题"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -421,11 +429,10 @@ def register_admin_routes(app):
 
 
     @app.delete("/api/admin/exam-questions/{question_id}")
-    async def delete_exam_question(question_id: int):
+    async def delete_exam_question(question_id: int, _admin: dict = Depends(require_admin)):
         """删除真题"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("DELETE FROM exam_questions WHERE id = ?", (question_id,))
@@ -442,11 +449,10 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/selected-questions")
-    async def get_admin_selected_questions(page: int = 1, page_size: int = 20, category: str = ""):
+    async def get_admin_selected_questions(page: int = 1, page_size: int = 20, category: str = "", _admin: dict = Depends(require_admin)):
         """获取精选题库列表（管理后台）"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             offset = (page - 1) * page_size
@@ -500,11 +506,10 @@ def register_admin_routes(app):
 
 
     @app.post("/api/admin/selected-questions")
-    async def create_selected_question(type: str, question: str, options: str, correct_answer: str, analysis: str, category: str, difficulty: str = "medium"):
+    async def create_selected_question(type: str, question: str, options: str, correct_answer: str, analysis: str, category: str, difficulty: str = "medium", _admin: dict = Depends(require_admin)):
         """创建精选题目"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -522,11 +527,10 @@ def register_admin_routes(app):
 
 
     @app.put("/api/admin/selected-questions/{question_id}")
-    async def update_selected_question(question_id: int, type: str, question: str, options: str, correct_answer: str, analysis: str, category: str, difficulty: str = "medium"):
+    async def update_selected_question(question_id: int, type: str, question: str, options: str, correct_answer: str, analysis: str, category: str, difficulty: str = "medium", _admin: dict = Depends(require_admin)):
         """更新精选题目"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -548,11 +552,10 @@ def register_admin_routes(app):
 
 
     @app.delete("/api/admin/selected-questions/{question_id}")
-    async def delete_selected_question(question_id: int):
+    async def delete_selected_question(question_id: int, _admin: dict = Depends(require_admin)):
         """删除精选题目"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("DELETE FROM selected_questions WHERE id = ?", (question_id,))
@@ -569,11 +572,10 @@ def register_admin_routes(app):
 
 
     @app.delete("/api/admin/users/{user_id}")
-    async def delete_user(user_id: int):
+    async def delete_user(user_id: int, _admin: dict = Depends(require_admin)):
         """删除用户"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
@@ -583,7 +585,8 @@ def register_admin_routes(app):
                 return {"success": False, "error": "用户不存在"}
 
             username = user[0]
-            if username.lower() in {"admin", "administrator", "管理员"}:
+            role_row = cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+            if role_row and role_row[0] == "admin":
                 conn.close()
                 return {"success": False, "error": "不能删除管理员账号"}
 
@@ -601,11 +604,10 @@ def register_admin_routes(app):
 
 
     @app.get("/api/admin/categories")
-    async def get_admin_categories():
+    async def get_admin_categories(_admin: dict = Depends(require_admin)):
         """获取分类列表"""
         try:
-            import sqlite3
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("SELECT DISTINCT category FROM exam_questions ORDER BY category")
@@ -625,13 +627,13 @@ def register_admin_routes(app):
             return {"success": False, "error": str(e)}
 
 
-    @app.get("/api/admin/user/{user_id}/ability-profile")
-    async def get_user_ability_profile(user_id: int):
+    async def _ability_profile(user_id: int):
+        """能力画像的实际计算逻辑，被下面两个端点共用。"""
         """获取用户能力档案"""
         try:
             import sqlite3
             import json
-            conn = sqlite3.connect('interview.db')
+            conn = get_db()
             cursor = conn.cursor()
 
             cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
@@ -722,3 +724,18 @@ def register_admin_routes(app):
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    @app.get("/api/user/ability-profile")
+    async def get_my_ability_profile(_user: dict = Depends(get_current_user)):
+        """当前登录用户的能力画像。
+
+        原先前端「个人能力画像」页直接调用管理端的
+        /api/admin/user/{user_id}/ability-profile，既无鉴权，
+        又能改 id 读他人画像。现在普通用户走这个端点，只能看自己。
+        """
+        return await _ability_profile(int(_user["uid"]))
+
+    @app.get("/api/admin/user/{user_id}/ability-profile")
+    async def get_user_ability_profile(user_id: int, _admin: dict = Depends(require_admin)):
+        """管理员查看任意用户的能力画像。"""
+        return await _ability_profile(user_id)

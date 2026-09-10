@@ -30,6 +30,7 @@
 |---|---|---|---|
 | W0-1 | 创建 `.gitignore`：排除 `.env`、`*.db`、`venv/`、`node_modules/`、`dist/`、`__pycache__/`、`debug_audio/`、`_archive/` | 仓库根 `D:\AImonims` | `git status --porcelain` 不再列出密钥与数据库 |
 | W0-2 | `git add -A` + 初始提交建立基线 | — | `git log --oneline` 有 1 条；`git status` clean |
+| W0-2a | **执行时发现**：项目根本不在版本控制下。会话初始上下文报告「是 git 仓库」，实为被 `D:\.git` 误导——该目录只有 `objects/pack`，缺 `HEAD`/`refs`/`config`，是残留的破损仓库，`git status` 在其下任何位置均报 not a git repository。故须先 `git init`，且范围必须是 `D:\AImonims` 而**不是驱动器根 `D:\`**（后者会试图跟踪整个 D 盘 107 个顶层条目） | 已处理 | `git rev-parse --show-toplevel` = `D:/AImonims` |
 | W0-3 | 备份在用库 `backend/interview.db`（6.2 MB / 9 用户 / 242 面试）到 `docs/backup/interview.db.bak` 并排除出 git | — | 文件存在且 `PRAGMA integrity_check` 通过 |
 
 > W0-1 必须早于 W0-2，否则密钥进入 git 历史；W0-2 必须早于 Wave 3 的所有删除。

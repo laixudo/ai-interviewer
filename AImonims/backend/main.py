@@ -2,17 +2,32 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+import asyncio
+import logging
 import sys
 import os
+from collections import OrderedDict
 from typing import Optional
 import json
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from functools import lru_cache
 import threading
 import time
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dotenv import load_dotenv
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 显式指定 .env 路径。原先是裸 load_dotenv()，它按 cwd 向上找，
+# 换个目录启动就读不到配置。
+load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
+)
+logger = logging.getLogger("interview")
+
+sys.path.append(os.path.dirname(BACKEND_DIR))
 
 from data.database import Database
 from data.job_knowledge_base import generate_questions as generate_job_questions, JOB_TYPES
@@ -26,6 +41,16 @@ from ai.speech_recognizer import speech_recognizer, convert_audio_to_whisper_for
 import admin_api
 import prep_center_api
 import favorites_api
+from auth import (
+    ConfigError,
+    assert_interview_owner,
+    create_token,
+    current_user_id,
+    get_current_user,
+    get_optional_user,
+    require_admin,
+)
+from errors import install_exception_handlers
 
 app = FastAPI()
 
@@ -33,125 +58,22 @@ db = Database()
 
 doubao_client = DoubaoClient()
 
-admin_api.register_admin_routes(app)
+install_exception_handlers(app)
+admin_api.register_admin_routes(app, db.get_connection)
 prep_center_api.register_prep_center_routes(app, db.get_connection)
 favorites_api.register_favorites_routes(app, db.get_connection)
-speech_recognizer.load_model()
 
-# 全局线程池（重用！不反复创建销毁）
-executor = ThreadPoolExecutor(max_workers=6)
 
-# 全局缓存（真正生效）
-@lru_cache(maxsize=2000)
-def analyze_with_cache(question, answer):
-    try:
-        return doubao_client.analyze_answer_quality("java_backend", question, answer)
-    except Exception as e:
-        print(f"分析回答质量失败: {e}")
-        return {"quality": "average", "confidence": 0.5, "reason": "系统繁忙，无法评分"}
+@app.on_event("startup")
+def _check_config():
+    """启动即校验签名密钥，避免运行到登录接口才炸。"""
+    from auth import _secret
+    _secret()
+    logger.info("配置校验通过，数据库: %s", db.db_path)
 
-@lru_cache(maxsize=2000)
-def comment_with_cache(question, answer):
-    try:
-        # 先获取分析结果
-        analysis = analyze_with_cache(question, answer)
-        quality = analysis.get('quality', 'average') if analysis else 'average'
-        result = doubao_client.generate_answer_comment("java_backend", question, answer, quality)
-        if result:
-            return result
-    except Exception as e:
-        print(f"生成点评失败: {e}")
-    return "感谢你的回答"
 
-@lru_cache(maxsize=2000)
-def followup_with_cache(question, answer):
-    try:
-        # 先获取点评
-        comment = comment_with_cache(question, answer)
-        # 使用默认的系统提示
-        system_prompt = "你是一位专业的面试官"
-        # 构建简单的对话历史
-        conversation_history = [
-            {"role": "assistant", "content": question},
-            {"role": "user", "content": answer}
-        ]
-        result = doubao_client.generate_followup_question_with_comment(system_prompt, conversation_history, comment)
-        if result:
-            return result
-    except Exception as e:
-        print(f"生成后续问题失败: {e}")
-    
-    # 根据用户回答生成针对性问题
-    if 'Spring Boot' in answer or 'spring boot' in answer:
-        return "你在使用Spring Boot开发后端接口时，遇到过哪些常见问题？是如何解决的？"
-    elif '多线程' in answer or '并发' in answer:
-        return "你能详细介绍一下你在项目中使用多线程和并发编程的具体场景吗？"
-    elif '数据库' in answer or 'MySQL' in answer:
-        return "你在MySQL数据库设计和SQL优化方面有哪些经验？能举个具体例子吗？"
-    elif '项目' in answer:
-        return "你能详细介绍一下你参与的AI模拟面试系统项目的架构设计和技术选型吗？"
-    else:
-        return "请详细介绍一下你最擅长的Java技术栈和项目经验。"
 
-def generate_answer_comment_and_followup(question, user_answer, conversation_history=None, doubao_client=None):
-    """生成点评和追问"""
-    if doubao_client is None:
-        doubao_client = global_doubao_client
 
-    results = {
-        "comment": "感谢你的回答",
-        "followup": None
-    }
-
-    try:
-        system_prompt = """你是一位专业、温和的面试官。请先点评候选人的回答，然后生成一个递进的追问。
-输出格式要求：
-第一部分（点评）：用1-2句话点评候选人回答的亮点或不足
-第二部分（追问）：直接输出一句话的追问问题，不要前缀，不要额外解释
-两部分之间用"---"分隔"""
-
-        if conversation_history and len(conversation_history) > 0:
-            prompt = f"面试对话历史：\n"
-            for msg in conversation_history[-4:]:
-                role = "面试官" if msg.get('role') == 'assistant' else "候选人"
-                prompt += f"{role}：{msg.get('content', '')[:200]}\n"
-            prompt += f"\n候选人最新回答：{user_answer}\n\n请先点评，再生成追问。"
-        else:
-            prompt = f"面试问题：{question}\n候选人回答：{user_answer}\n\n请先点评候选人的回答，再生成下一个递进的面试问题。"
-
-        response = doubao_client.generate_response(system_prompt, prompt, temperature=0.7, max_tokens=600)
-
-        if response:
-            parts = response.split('---')
-            if len(parts) >= 2:
-                results["comment"] = parts[0].strip()
-                results["followup"] = parts[-1].strip()
-            else:
-                lines = [l.strip() for l in response.strip().split('\n') if l.strip()]
-                for i, line in enumerate(lines):
-                    if '?' in line and len(line) > 10:
-                        results["comment"] = ' '.join(lines[:i+1]) if i > 0 else "感谢你的回答"
-                        results["followup"] = line
-                        break
-                if not results["followup"] and lines:
-                    results["followup"] = lines[-1]
-
-    except Exception as e:
-        print(f"AI生成点评和追问失败: {e}")
-
-    if not results["followup"]:
-        if 'Spring Boot' in user_answer or 'spring boot' in user_answer:
-            results["followup"] = "你在使用Spring Boot开发后端接口时，遇到过哪些常见问题？是如何解决的？"
-        elif '多线程' in user_answer or '并发' in user_answer:
-            results["followup"] = "你能详细介绍一下你在项目中使用多线程和并发编程的具体场景吗？"
-        elif '数据库' in user_answer or 'MySQL' in user_answer:
-            results["followup"] = "你在MySQL数据库设计和SQL优化方面有哪些经验？能举个具体例子吗？"
-        elif '项目' in user_answer:
-            results["followup"] = "你能详细介绍一下你参与的AI模拟面试系统项目的架构设计和技术选型吗？"
-        else:
-            results["followup"] = "请详细介绍一下你最擅长的Java技术栈和项目经验。"
-
-    return results
 
 
 def get_candidate_question_prompt(duration):
@@ -271,12 +193,17 @@ def _generate_default_evaluation_report():
 # 全局豆包客户端
 global_doubao_client = DoubaoClient()
 
+# 白名单原先写死为 3000-3003，漏了管理后台的 8080（开发期靠 vite 代理绕过，
+# 独立部署即失败）。改为从 CORS_ORIGINS 读取，逗号分隔。
+_default_origins = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:8080"
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 class ConnectionManager:
@@ -375,62 +302,8 @@ def get_interview_ending_message(duration):
     return endings.get(duration, endings[10])
 
 
-def evaluate_and_generate_followup(user_answer, position, question_index, followup_count, max_followups, tech_count, tech_limit):
-    """评估回答质量并决定是否追问"""
-    try:
-        system_prompt = f"""你是一位专业的{position}面试官。候选人刚回答了第{question_index + 1}个技术问题。
-
-评估候选人的回答，决定是否需要追问。
-- 只有当回答非常浅显、明显不正确、或者有重大遗漏时，才需要追问
-- 如果回答已经完整、有深度，不要追问，直接进入下一个问题
-
-请用JSON格式返回：
-{{"should_followup": true或false, "reason": "判断原因", "followup_question": "追问问题（仅当should_followup为true时需要）"}}
-
-要求：不要过度追问，保持面试节奏流畅。"""
-
-        prompt = f"候选人回答：{user_answer}\n\n请评估是否需要追问。"
-
-        response = global_doubao_client.generate_response(system_prompt, prompt, temperature=0.5, max_tokens=300)
-
-        if response:
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                import json as json_lib
-                data = json_lib.loads(json_match.group())
-                should = data.get('should_followup', False)
-                followup = data.get('followup_question', '')
-
-                if should and followup_count < max_followups and followup and len(followup) > 10:
-                    return True, followup
-
-    except Exception as e:
-        print(f"AI评估追问失败: {e}")
-
-    return False, ""
 
 
-def generate_followup_question(user_answer, position, question_index):
-    """生成追问问题"""
-    try:
-        system_prompt = f"""你是一位专业的{position}面试官。候选人刚回答了第{question_index + 1}个技术问题。
-
-请针对候选人回答中的具体点，深入追问一个问题。要求：
-1. 追问要具体，不要泛泛而问
-2. 一次只问一个问题
-3. 像真人面试官一样自然"""
-
-        prompt = f"候选人回答：{user_answer}\n\n请生成一个追问。"
-
-        response = global_doubao_client.generate_response(system_prompt, prompt, temperature=0.7, max_tokens=150)
-        if response and len(response) > 10:
-            return response.strip()
-
-    except Exception as e:
-        print(f"AI生成追问失败: {e}")
-
-    return ""
 
 
 def generate_comment_and_followup_combined(user_answer, position, question_index, should_followup, max_tokens=200):
@@ -511,42 +384,8 @@ def generate_comment_and_followup_combined(user_answer, position, question_index
     return result
 
 
-def generate_answer_comment_and_followup_for_tech(user_answer, position, question_num, duration):
-    """为技术问题生成点评（不生成追问，追问由系统决定）"""
-    results = {"comment": "", "followup": ""}
-
-    try:
-        system_prompt = f"""你是一位专业、温和的{position}面试官。请用1-2句话简短点评候选人的回答。
-要求：
-1. 指出回答的亮点或不足
-2. 只点评，不要生成下一个问题
-3. 不要使用markdown格式
-4. 像真人面试官一样自然"""
-
-        prompt = f"第{question_num}个技术问题，候选人回答：{user_answer}\n\n请简短点评。"
-
-        response = global_doubao_client.generate_response(system_prompt, prompt, temperature=0.7, max_tokens=200)
-
-        if response:
-            results["comment"] = response.strip()
-
-    except Exception as e:
-        print(f"AI生成点评失败: {e}")
-        results["comment"] = "感谢你的回答。"
-
-    return results
 
 
-# 异步保存记录
-def save_record_async(interview_id, sender, content):
-    """后台异步保存消息记录，不阻塞API响应"""
-    def save_task():
-        try:
-            db.add_message(interview_id, sender, content)
-        except Exception as e:
-            print(f"保存消息失败: {e}")
-
-    threading.Thread(target=save_task).start()
 
 
 # 评估报告缓存（用于异步生成后存储结果）
@@ -634,36 +473,47 @@ class RecommendResourcesRequest(BaseModel):
 
 @app.post("/api/auth/register")
 async def register(request: UserRegisterRequest):
+    if len(request.password or "") < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    # role 固定为 user：注册接口不接受角色参数，管理员只能由管理端授予。
     user_id = db.add_user(
         username=request.username,
         password=request.password,
         email=request.email,
-        phone=request.phone
+        phone=request.phone,
+        role="user",
     )
     if user_id is None:
         raise HTTPException(status_code=400, detail="用户名或邮箱已存在")
-    return {"message": "注册成功", "user_id": user_id}
+    user = db.get_user_by_id(user_id)
+    return {"message": "注册成功", "user_id": user_id, "token": create_token(user), "role": "user"}
 
 @app.post("/api/user/info")
-async def get_user_info(user_id: int):
-    user = db.get_user_by_id(user_id)
+async def get_user_info(user_id: Optional[int] = None, _user: dict = Depends(get_current_user)):
+    """返回当前登录用户的信息。
+
+    user_id 形参仅为兼容前端既有调用（它仍会带上这个参数），其值不采信；
+    身份一律取自令牌，否则任何人改 id 就能读他人资料。
+    """
+    user = db.get_user_by_id(current_user_id(_user))
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user
 
 @app.post("/api/user/update")
-async def update_user(user_id: int, username: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None, avatar: Optional[str] = None):
-    success = db.update_user(user_id, username, email, phone, avatar)
+async def update_user(user_id: Optional[int] = None, username: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None, avatar: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    success = db.update_user(current_user_id(_user), username, email, phone, avatar)
     if success:
         return {"message": "更新成功"}
     else:
         return {"message": "无更新内容"}
 
 @app.post("/api/interview/start")
-async def start_interview(user_id: int, request: InterviewRequest):
+async def start_interview(request: InterviewRequest, user_id: Optional[int] = None, _user: dict = Depends(get_current_user)):
+    # user_id 形参仅为兼容前端既有调用，其值不采信；归属一律以令牌为准。
     try:
         interview_id = db.start_interview(
-            user_id=user_id,
+            user_id=current_user_id(_user),
             position=request.position,
             round_info=request.round,
             job_type=request.job_type,
@@ -755,7 +605,8 @@ async def start_interview(user_id: int, request: InterviewRequest):
         }
 
 @app.post("/api/interview/message")
-async def send_message(request: MessageRequest):
+async def send_message(request: MessageRequest, _user: dict = Depends(get_current_user)):
+    assert_interview_owner(db, request.interview_id, _user)
     db.add_message(request.interview_id, "user", request.content)
 
     interview_info = db.get_interview(request.interview_id)
@@ -1009,7 +860,8 @@ async def generate_questions(request: GenerateQuestionsRequest):
         ]}
 
 @app.post("/api/interview/evaluate")
-async def evaluate_interview(request: EvaluateRequest):
+async def evaluate_interview(request: EvaluateRequest, _user: dict = Depends(get_current_user)):
+    assert_interview_owner(db, request.interview_id, _user)
     try:
         report = generate_evaluation_with_ai(
             job_type=request.job_type,
@@ -1048,8 +900,9 @@ async def evaluate_interview(request: EvaluateRequest):
 
 
 @app.get("/api/interview/{interview_id}/evaluation-report")
-async def get_evaluation_report(interview_id: int):
+async def get_evaluation_report(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取面试评估报告（支持异步轮询）"""
+    assert_interview_owner(db, interview_id, _user)
     cached_report = get_cached_evaluation_report(interview_id)
     if cached_report:
         return {
@@ -1117,7 +970,8 @@ def generate_evaluation_with_ai(job_type, questions, answers):
     return None
 
 @app.post("/api/interview/improvement-plan")
-async def generate_improvement_plan(request: ImprovementPlanRequest):
+async def generate_improvement_plan(request: ImprovementPlanRequest, _user: dict = Depends(get_current_user)):
+    assert_interview_owner(db, request.interview_id, _user)
     try:
         improver = AbilityImprover()
         improvement_plan = improver.generate_improvement_plan(
@@ -1225,12 +1079,14 @@ async def generate_improvement_plan(request: ImprovementPlanRequest):
         }
 
 @app.get("/api/interview/history")
-async def get_interview_history(user_id: int):
-    interviews = db.get_user_interviews(user_id)
+async def get_interview_history(user_id: Optional[int] = None, _user: dict = Depends(get_current_user)):
+    # 只返回当前登录用户自己的面试历史
+    interviews = db.get_user_interviews(current_user_id(_user))
     return {"interviews": interviews}
 
 @app.get("/api/interview/detail")
-async def get_interview_detail(interview_id: int):
+async def get_interview_detail(interview_id: int, _user: dict = Depends(get_current_user)):
+    assert_interview_owner(db, interview_id, _user)
     interview = db.get_interview(interview_id)
     if not interview:
         raise HTTPException(status_code=404, detail="面试不存在")
@@ -1260,15 +1116,16 @@ async def get_interview_detail(interview_id: int):
     }
 
 @app.delete("/api/interview/delete")
-async def delete_interview(interview_id: int, user_id: int):
+async def delete_interview(interview_id: int, user_id: int, _user: dict = Depends(get_current_user)):
+    assert_interview_owner(db, interview_id, _user)
     interview = db.get_interview(interview_id)
     if not interview:
         raise HTTPException(status_code=404, detail="面试不存在")
     
-    if interview['user_id'] != user_id:
-        raise HTTPException(status_code=403, detail="无权删除此面试记录")
-    
+    # 原先是 `if interview['user_id'] != user_id`，而 user_id 由调用方提供，
+    # 等于自己证明自己；现由 assert_interview_owner 依据令牌校验。
     success = db.delete_interview(interview_id)
+    return {"success": bool(success), "message": "删除成功" if success else "删除失败"}
 
 # 数字人相关API端点
 class AvatarMessage(BaseModel):
@@ -1653,7 +1510,8 @@ async def add_exam_question(question: str, answer: str, analysis: str, category:
     return {"message": "添加成功", "question_id": question_id}
 
 @app.post("/api/learning/recommend-resources")
-async def recommend_resources(request: RecommendResourcesRequest):
+async def recommend_resources(request: RecommendResourcesRequest, _user: dict = Depends(get_current_user)):
+    request.user_id = current_user_id(_user)
     try:
         interview_history = None
         if request.user_id:
@@ -1697,7 +1555,8 @@ async def recommend_resources(request: RecommendResourcesRequest):
         }
 
 @app.get("/api/learning/history-analysis")
-async def analyze_history(user_id: int):
+async def analyze_history(user_id: Optional[int] = None, _user: dict = Depends(get_current_user)):
+    user_id = current_user_id(_user)
     try:
         interviews = db.get_user_interviews(user_id)
         if not interviews or len(interviews) == 0:
@@ -1941,7 +1800,7 @@ class SpeechUploadRequest(BaseModel):
     duration: Optional[float] = 0.0  # 语音时长（秒）
 
 @app.post("/api/speech/upload")
-async def upload_speech(request: Request):
+async def upload_speech(request: Request, _user: dict = Depends(get_current_user)):
     """上传语音并进行分析"""
     try:
         form_data = await request.form()
@@ -2077,7 +1936,7 @@ async def upload_speech(request: Request):
         return {"error": f"处理失败: {str(e)}"}
 
 @app.get("/api/speech/record/{record_id}")
-async def get_speech_record(record_id: int):
+async def get_speech_record(record_id: int, _user: dict = Depends(get_current_user)):
     """获取语音记录"""
     try:
         record = db.get_speech_record_by_id(record_id)
@@ -2098,8 +1957,9 @@ async def get_speech_record(record_id: int):
         return {"error": f"获取失败: {str(e)}"}
 
 @app.get("/api/speech/records/{interview_id}")
-async def get_speech_records(interview_id: int):
+async def get_speech_records(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取面试的所有语音记录"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         records = db.get_speech_records(interview_id)
         for record in records:
@@ -2111,8 +1971,9 @@ async def get_speech_records(interview_id: int):
         return {"error": f"获取失败: {str(e)}"}
 
 @app.get("/api/speech/summary/{interview_id}")
-async def get_speech_summary(interview_id: int):
+async def get_speech_summary(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取语音分析汇总"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         summary = db.get_speech_analysis_summary(interview_id)
         if summary:
@@ -2354,8 +2215,9 @@ async def extract_resume(request: ResumeExtractRequest):
 
 
 @app.post("/api/resume/evaluate")
-async def evaluate_resume(request: ResumeEvaluationRequest):
+async def evaluate_resume(request: ResumeEvaluationRequest, _user: dict = Depends(get_current_user)):
     """评价简历制作质量"""
+    assert_interview_owner(db, request.interview_id, _user)
     try:
         interview = db.get_interview(request.interview_id)
         if not interview:
@@ -2375,8 +2237,9 @@ async def evaluate_resume(request: ResumeEvaluationRequest):
 
 
 @app.get("/api/resume/evaluation/{interview_id}")
-async def get_resume_evaluation(interview_id: int):
+async def get_resume_evaluation(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取简历评价结果"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         evaluation = db.get_resume_evaluation(interview_id)
         if evaluation:
@@ -2523,7 +2386,7 @@ async def analyze_face(request: FaceAnalysisRequest):
 
 
 @app.post("/api/interview/save-face-analysis")
-async def save_face_analysis(request: Request):
+async def save_face_analysis(request: Request, _user: dict = Depends(get_current_user)):
     """保存面部分析结果"""
     try:
         data = await request.json()
@@ -2557,8 +2420,9 @@ async def save_face_analysis(request: Request):
 
 
 @app.get("/api/interview/face-analysis/{interview_id}")
-async def get_face_analysis(interview_id: int):
+async def get_face_analysis(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取面试的面部分析结果"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         analyses = db.get_face_analyses(interview_id)
         summary = db.get_face_analysis_summary(interview_id)
@@ -2574,8 +2438,9 @@ async def get_face_analysis(interview_id: int):
 
 
 @app.get("/api/interview/face-analysis-summary/{interview_id}")
-async def get_face_analysis_summary_api(interview_id: int):
+async def get_face_analysis_summary_api(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取面部分析汇总"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         summary = db.get_face_analysis_summary(interview_id)
         if summary:
@@ -2598,8 +2463,9 @@ class ComprehensiveReportRequest(BaseModel):
     interview_id: int
 
 @app.post("/api/interview/comprehensive-report")
-async def generate_comprehensive_report(request: ComprehensiveReportRequest):
+async def generate_comprehensive_report(request: ComprehensiveReportRequest, _user: dict = Depends(get_current_user)):
     """生成综合评估报告（整合对话+简历+面部分析）"""
+    assert_interview_owner(db, request.interview_id, _user)
     try:
         import json as json_lib
 
@@ -2747,8 +2613,9 @@ def generate_overall_assessment(score, face_summary, resume_evaluation, speech_s
 
 
 @app.get("/api/interview/full-evaluation/{interview_id}")
-async def get_full_evaluation(interview_id: int):
+async def get_full_evaluation(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取完整评估报告"""
+    assert_interview_owner(db, interview_id, _user)
     try:
         import json as json_lib
 
@@ -2794,21 +2661,27 @@ class AuthResponse(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
     role: Optional[str] = None
-
-
-ADMIN_USERS = {"admin", "administrator", "管理员"}
+    token: Optional[str] = None
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
+    """登录成功后下发签名令牌。
+
+    修复前：不下发任何凭证，且 role 是拿用户名跟
+    {"admin","administrator","管理员"} 做字符串比对算出来的 ——
+    注册一个叫 admin 的账号就是管理员。现在 role 只认数据库 users.role 列。
+    """
     user = db.login_user(request.username, request.password)
-    if user:
-        role = "admin" if request.username.lower() in ADMIN_USERS else "user"
-        return AuthResponse(
-            success=True,
-            message="登录成功",
-            user_id=user["id"],
-            username=user["username"],
-            role=role
-        )
-    return AuthResponse(success=False, message="用户名或密码错误")
+    if not user:
+        return AuthResponse(success=False, message="用户名或密码错误")
+
+    role = user.get("role") or "user"
+    return AuthResponse(
+        success=True,
+        message="登录成功",
+        user_id=user["id"],
+        username=user["username"],
+        role=role,
+        token=create_token(user),
+    )

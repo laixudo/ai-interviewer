@@ -1,16 +1,41 @@
 import io
+import logging
 import os
-import numpy as np
-import imageio_ffmpeg
-from pydub import AudioSegment
 
-AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+logger = logging.getLogger("interview.speech")
 
-VOSK_MODEL_PATH = "D:\\\\AImonims\\\\models\\\\vosk-model-small-cn-0.3"
+# 音频处理链（numpy / imageio_ffmpeg / pydub）属可选依赖：
+# 没装时只关闭语音功能，不应该让整个后端起不来。
+try:
+    import numpy as np
+    import imageio_ffmpeg
+    from pydub import AudioSegment
+
+    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+    AUDIO_STACK_AVAILABLE = True
+    AUDIO_STACK_ERROR = None
+except Exception as _audio_import_error:  # pragma: no cover - 取决于环境
+    np = None
+    AudioSegment = None
+    AUDIO_STACK_AVAILABLE = False
+    AUDIO_STACK_ERROR = str(_audio_import_error)
+    logger.warning("音频依赖不完整，语音识别功能将不可用: %s", AUDIO_STACK_ERROR)
+
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 原先写死为 "D:\\\\AImonims\\\\models\\\\vosk-model-small-cn-0.3"：
+# 既是本机绝对路径（Linux/Docker 必挂），又多写了一层转义。
+VOSK_MODEL_PATH = os.path.normpath(
+    os.path.join(_BACKEND_DIR, os.environ.get("VOSK_MODEL_PATH", "../../models/vosk-model-small-cn-0.3"))
+    if not os.path.isabs(os.environ.get("VOSK_MODEL_PATH", ""))
+    else os.environ["VOSK_MODEL_PATH"]
+)
 
 
 def convert_audio_to_whisper_format(audio_bytes):
     """把任意浏览器录音格式转成 16k 单声道 numpy 数组"""
+    if not AUDIO_STACK_AVAILABLE:
+        return None, 0
     audio_io = io.BytesIO(audio_bytes)
     audio_io.seek(0)
 
@@ -64,6 +89,8 @@ class VoskRecognizer:
 
     def recognize(self, audio_bytes):
         """识别语音并返回结果"""
+        if not AUDIO_STACK_AVAILABLE:
+            return {"text": "", "error": "音频依赖未安装（见 requirements-speech.txt）"}
         if not self.model_loaded:
             self.load_model()
 
@@ -153,6 +180,8 @@ class WhisperRecognizer:
 
     def recognize(self, audio_bytes):
         """使用 Whisper 识别语音"""
+        if not AUDIO_STACK_AVAILABLE:
+            return {"text": "", "error": "音频依赖未安装（见 requirements-speech.txt）"}
         if not self.model_loaded:
             self.load_model()
 
