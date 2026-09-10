@@ -726,9 +726,15 @@ class Database:
         conn = self._connect()
         cursor = conn.cursor()
         try:
-            cursor.execute('DELETE FROM improvement_plans WHERE interview_id = ?', (interview_id,))
-            cursor.execute('DELETE FROM evaluation_reports WHERE interview_id = ?', (interview_id,))
-            cursor.execute('DELETE FROM messages WHERE interview_id = ?', (interview_id,))
+            # 开启 PRAGMA foreign_keys=ON 后，必须先清空全部子表才能删父行。
+            # 原先只删了 3 张表，resume_evaluations / face_analyses / speech_records
+            # 会留下孤儿行（此前外键没开，问题被掩盖了）。
+            for table in (
+                'improvement_plans', 'evaluation_reports', 'messages',
+                'resume_evaluations', 'face_analyses', 'speech_records',
+                'conversation_reports',
+            ):
+                cursor.execute('DELETE FROM %s WHERE interview_id = ?' % table, (interview_id,))
             cursor.execute('DELETE FROM interviews WHERE id = ?', (interview_id,))
             conn.commit()
             return True

@@ -1,9 +1,11 @@
 import os
+import threading
 import requests
 import json
 from dotenv import load_dotenv
 
-load_dotenv()
+# 显式指定 .env 路径：原先裸 load_dotenv() 按 cwd 向上找，换目录启动就读不到。
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 
 class DoubaoClient:
@@ -15,6 +17,9 @@ class DoubaoClient:
         self.cache = {}
         self.cache_max_size = 100
         self.cache_timeout = 3600
+        # 缓存会被多个工作线程并发访问（LLM 调用已改走 asyncio.to_thread），
+        # 而下面几处是「先判断再删除」的读改写序列，必须加锁。
+        self._cache_lock = threading.Lock()
 
     def _get_cache_key(self, system_prompt, user_prompt, temperature, max_tokens):
         import hashlib
@@ -23,29 +28,31 @@ class DoubaoClient:
 
     def _check_cache(self, key):
         import time
-        if key in self.cache:
-            cached_data = self.cache[key]
+        with self._cache_lock:
+            cached_data = self.cache.get(key)
+            if cached_data is None:
+                return None
             if time.time() - cached_data['timestamp'] < self.cache_timeout:
                 return cached_data['content']
-            else:
-                del self.cache[key]
-        return None
+            self.cache.pop(key, None)
+            return None
 
     def _update_cache(self, key, content):
         import time
         current_time = time.time()
-        expired_keys = [k for k, v in self.cache.items() if current_time - v['timestamp'] >= self.cache_timeout]
-        for k in expired_keys:
-            del self.cache[k]
+        with self._cache_lock:
+            expired_keys = [k for k, v in self.cache.items() if current_time - v['timestamp'] >= self.cache_timeout]
+            for k in expired_keys:
+                self.cache.pop(k, None)
 
-        if len(self.cache) >= self.cache_max_size:
-            oldest_key = min(self.cache, key=lambda k: self.cache[k]['timestamp'])
-            del self.cache[oldest_key]
+            while len(self.cache) >= self.cache_max_size:
+                oldest_key = min(self.cache, key=lambda k: self.cache[k]['timestamp'])
+                self.cache.pop(oldest_key, None)
 
-        self.cache[key] = {
-            'content': content,
-            'timestamp': time.time()
-        }
+            self.cache[key] = {
+                'content': content,
+                'timestamp': time.time()
+            }
 
     def _make_request(self, messages, temperature=0.7, max_tokens=2000, timeout=60):
         url = f"{self.base_url}/chat/completions"

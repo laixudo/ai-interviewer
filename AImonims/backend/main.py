@@ -10,7 +10,6 @@ from collections import OrderedDict
 from typing import Optional
 import json
 from datetime import datetime
-import threading
 import time
 
 from dotenv import load_dotenv
@@ -50,7 +49,8 @@ from auth import (
     get_optional_user,
     require_admin,
 )
-from errors import install_exception_handlers
+from errors import fail, install_exception_handlers, log_exception
+from llm_utils import extract_json
 
 app = FastAPI()
 
@@ -115,15 +115,25 @@ def answer_candidate_question(question, position, interviewer_role, target_compa
     return "好问题！关于这方面，我可以告诉你我们团队非常注重候选人的成长和培养，会有导师一对一带教。"
 
 
-def evaluate_interview_and_recommend(interview_id, doubao_client=None):
-    """面试结束时，分析能力短板并推荐学习资源"""
+def evaluate_interview_and_recommend(interview_id, doubao_client=None, job_type=None):
+    """面试结束时，分析能力短板并推荐学习资源。
+
+    失败返回 None，由调用方记录 status="failed" —— 不再返回硬编码的假报告。
+    job_type 此前被调用方传了却没接住，导致所有岗位都按 Java 出评估。
+    """
     if doubao_client is None:
         doubao_client = global_doubao_client
 
     messages = db.get_messages(interview_id)
 
     if len(messages) < 4:
-        return _generate_default_evaluation_report()
+        logger.info("面试 %s 对话不足 4 轮，不足以生成评估", interview_id)
+        return None
+
+    if not job_type:
+        job_type = (db.get_interview(interview_id) or {}).get('job_type') or 'unknown'
+    # JOB_TYPES 的结构是 {job_type: 岗位中文名}，不是嵌套字典
+    job_label = JOB_TYPES.get(job_type, job_type) if isinstance(JOB_TYPES, dict) else job_type
 
     try:
         system_prompt = """你是一位专业的面试教练，需要根据面试对话分析候选人的能力短板，并推荐学习资源。
@@ -151,43 +161,20 @@ def evaluate_interview_and_recommend(interview_id, doubao_client=None):
             role = "面试官" if msg['sender'] == 'ai' else "候选人"
             conversation_text += f"{role}：{msg['content']}\n\n"
 
-        user_prompt = f"面试对话记录：\n{conversation_text}\n\n请分析并给出评估和建议。"
+        user_prompt = f"应聘岗位：{job_label}\n面试对话记录：\n{conversation_text}\n\n请结合该岗位分析并给出评估和建议。"
 
         response = doubao_client.generate_response(system_prompt, user_prompt, temperature=0.5, max_tokens=1500)
 
         if response:
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                import json as json_lib
-                return json_lib.loads(json_match.group())
+            parsed = extract_json(response)
+            if parsed:
+                return parsed
+        logger.warning("面试 %s 的评估回复无法解析为 JSON", interview_id)
 
-    except Exception as e:
-        print(f"AI评估面试失败: {e}")
+    except Exception as exc:
+        log_exception("evaluate_interview_and_recommend(%s)" % interview_id, exc)
 
-    return _generate_default_evaluation_report()
-
-
-def _generate_default_evaluation_report():
-    """生成默认的评估报告（当AI评估失败时使用）"""
-    return {
-        "strengths": [
-            "候选人积极参与面试过程",
-            "能够回答基础技术问题"
-        ],
-        "weaknesses": [
-            "技术深度有待加强",
-            "需要更多项目实战经验",
-            "表达逻辑可以更清晰"
-        ],
-        "recommendations": [
-            {"topic": "Java核心技术", "resource": "《Java核心技术》卷一、二"},
-            {"topic": "Spring Boot框架", "resource": "Spring Boot官方文档"},
-            {"topic": "数据库优化", "resource": "《高性能MySQL》"},
-            {"topic": "算法与数据结构", "resource": "LeetCode算法题库"},
-            {"topic": "项目经验", "resource": "GitHub开源项目学习"}
-        ]
-    }
+    return None
 
 
 # 全局豆包客户端
@@ -389,39 +376,72 @@ def generate_comment_and_followup_combined(user_answer, position, question_index
 
 
 # 评估报告缓存（用于异步生成后存储结果）
-evaluation_report_cache = {}
+# 报告的进程内缓存只作为「刚生成完」的快速通道，真实来源是数据库。
+# 原先只有这个 dict：进程一重启报告就没了，端点会永久返回 status="generating"。
+_REPORT_CACHE_MAX = 200
+evaluation_report_cache = OrderedDict()
 
 
-def generate_evaluation_report_async(interview_id, job_type):
-    """后台异步生成评估报告（优化方案A）"""
-    def generate_task():
+def _cache_report(interview_id, value):
+    evaluation_report_cache[interview_id] = value
+    evaluation_report_cache.move_to_end(interview_id)
+    while len(evaluation_report_cache) > _REPORT_CACHE_MAX:
+        evaluation_report_cache.popitem(last=False)
+
+
+def generate_evaluation_report_task(interview_id, job_type=None):
+    """后台生成对话式评估报告，成功与否都落库。
+
+    失败时记录 status="failed"，不再用硬编码的假报告冒充结果 ——
+    对面试评估产品来说，编造的「优势/短板/推荐书目」比明确报错更糟，
+    用户无从分辨哪份评估是真的。
+    """
+    try:
+        logger.info("[异步评估] 开始为面试 %s 生成评估报告", interview_id)
+        report = evaluate_interview_and_recommend(interview_id, job_type=job_type)
+        if report:
+            db.save_conversation_report(interview_id, "completed", payload=report, job_type=job_type)
+            _cache_report(interview_id, {"status": "completed", "payload": report})
+            logger.info("[异步评估] 面试 %s 评估报告生成完成", interview_id)
+        else:
+            db.save_conversation_report(interview_id, "failed", error="模型未返回可解析的评估结果", job_type=job_type)
+            _cache_report(interview_id, {"status": "failed", "error": "模型未返回可解析的评估结果"})
+            logger.warning("[异步评估] 面试 %s 评估生成失败", interview_id)
+    except Exception as exc:
+        trace_id = log_exception("generate_evaluation_report_task(%s)" % interview_id, exc)
         try:
-            print(f"[异步评估] 开始为面试 {interview_id} 生成评估报告...")
-            report = evaluate_interview_and_recommend(interview_id)
-            if report:
-                evaluation_report_cache[interview_id] = report
-                print(f"[异步评估] 面试 {interview_id} 评估报告生成完成")
-            else:
-                print(f"[异步评估] 面试 {interview_id} 评估报告生成失败，使用默认报告")
-                evaluation_report_cache[interview_id] = {
-                    "strengths": ["积极参与面试过程"],
-                    "weaknesses": ["技术深度有待加强"],
-                    "recommendations": [{"topic": "Java核心技术", "resource": "推荐系统学习"}]
-                }
-        except Exception as e:
-            print(f"[异步评估] 生成评估报告失败: {e}")
-            evaluation_report_cache[interview_id] = {
-                "strengths": ["积极参与面试过程"],
-                "weaknesses": ["技术深度有待加强"],
-                "recommendations": [{"topic": "Java核心技术", "resource": "推荐系统学习"}]
-            }
+            db.save_conversation_report(interview_id, "failed", error="生成异常 trace_id=%s" % trace_id, job_type=job_type)
+        except Exception:
+            logger.exception("写入失败状态时再次异常")
+        _cache_report(interview_id, {"status": "failed", "error": "生成异常", "trace_id": trace_id})
 
-    threading.Thread(target=generate_task).start()
+
+def generate_evaluation_report_async(interview_id, job_type=None, background_tasks=None):
+    """调度后台评估任务。
+
+    原实现是 threading.Thread(...).start()：无上限、无 join、异常不上报；
+    同时还建了个从未使用的 ThreadPoolExecutor(max_workers=6)。
+    """
+    db.save_conversation_report(interview_id, "generating", job_type=job_type)
+    _cache_report(interview_id, {"status": "generating"})
+    if background_tasks is not None:
+        background_tasks.add_task(generate_evaluation_report_task, interview_id, job_type)
+        return
+    try:
+        asyncio.get_running_loop().run_in_executor(None, generate_evaluation_report_task, interview_id, job_type)
+    except RuntimeError:
+        generate_evaluation_report_task(interview_id, job_type)
 
 
 def get_cached_evaluation_report(interview_id):
-    """获取缓存的评估报告"""
-    return evaluation_report_cache.get(interview_id)
+    """取评估报告：先看进程内缓存，再回落到数据库。"""
+    cached = evaluation_report_cache.get(interview_id)
+    if cached:
+        return cached
+    stored = db.get_conversation_report(interview_id)
+    if not stored:
+        return None
+    return {"status": stored.get("status"), "payload": stored.get("payload"), "error": stored.get("error")}
 
 class UserRegisterRequest(BaseModel):
     username: str
@@ -580,10 +600,10 @@ async def start_interview(request: InterviewRequest, user_id: Optional[int] = No
         resume_based_questions = []
         if request.resume_text and request.resume_text.strip():
             try:
-                resume_info = extract_resume_info(request.resume_text, request.job_type)
+                resume_info = await asyncio.to_thread(extract_resume_info, request.resume_text, request.job_type)
                 db.update_resume_info(interview_id, json_lib.dumps(resume_info, ensure_ascii=False))
                 # 生成基于简历的问题，为技术问题环节做准备
-                resume_based_questions = generate_resume_based_questions(resume_info, request.job_type, min(3, question_config.get("tech_questions", 4)))
+                resume_based_questions = await asyncio.to_thread(generate_resume_based_questions, resume_info, request.job_type, min(3, question_config.get("tech_questions", 4)))
                 db.update_resume_based_questions(interview_id, json_lib.dumps(resume_based_questions, ensure_ascii=False))
             except Exception as resume_error:
                 print(f"简历处理失败: {resume_error}")
@@ -675,12 +695,10 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
             db.update_tech_question_count(request.interview_id, 0)
 
             system_prompt = get_tech_question_system_prompt(duration, position, job_type)
-            followup_response = doubao_client.generate_response(
-                system_prompt,
+            followup_response = await asyncio.to_thread(doubao_client.generate_response, system_prompt,
                 f"候选人自我介绍：{request.content}\n\n请生成第1个技术问题。",
                 temperature=0.7,
-                max_tokens=500
-            )
+                max_tokens=500)
             if not followup_response:
                 followup_response = get_default_tech_question(tech_question_count + 1, position)
         else:
@@ -694,9 +712,7 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
 
         should_followup = current_followup_count < max_followups_per_question
 
-        combined_result = generate_comment_and_followup_combined(
-            request.content, position, current_question_index, should_followup, max_tokens=250
-        )
+        combined_result = await asyncio.to_thread(generate_comment_and_followup_combined, request.content, position, current_question_index, should_followup, max_tokens=250)
 
         comment = combined_result["comment"]
         followup_response = combined_result["followup"]
@@ -736,7 +752,7 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
                 if current_question_index - 1 < len(resume_based_questions):
                     followup_response = resume_based_questions[current_question_index - 1]
                 else:
-                    next_question = generate_next_tech_question(position, current_question_index, duration, job_type)
+                    next_question = await asyncio.to_thread(generate_next_tech_question, position, current_question_index, duration, job_type)
                     if next_question:
                         followup_response = next_question
                     else:
@@ -760,7 +776,7 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
             resume_text = interview_info.get('resume_text', '') if interview_info else ''
             if resume_text and resume_text.strip():
                 try:
-                    evaluate_resume_quality(resume_text, job_type, request.interview_id)
+                    await asyncio.to_thread(evaluate_resume_quality, resume_text, job_type, request.interview_id)
                 except Exception as resume_eval_error:
                     print(f"简历评价失败: {resume_eval_error}")
             
@@ -770,13 +786,11 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
                 "interview_id": request.interview_id
             }
         else:
-            followup_response = answer_candidate_question(
-                request.content,
+            followup_response = await asyncio.to_thread(answer_candidate_question, request.content,
                 position,
                 interviewer_role,
                 target_company,
-                is_last_question=(candidate_q_count == candidate_question_limit - 1)
-            )
+                is_last_question=(candidate_q_count == candidate_question_limit - 1))
             if candidate_q_count == candidate_question_limit - 1:
                 generate_evaluation_report_async(request.interview_id, job_type)
 
@@ -837,7 +851,7 @@ async def generate_questions(request: GenerateQuestionsRequest):
         
         user_prompt = f"请生成{question_count}个{request.job}岗位的面试问题，以JSON数组格式返回。"
         
-        result = doubao_client.generate_response(system_prompt, user_prompt, temperature=0.8)
+        result = await asyncio.to_thread(doubao_client.generate_response, system_prompt, user_prompt, temperature=0.8)
         if result:
             try:
                 questions_data = json.loads(result)
@@ -863,11 +877,9 @@ async def generate_questions(request: GenerateQuestionsRequest):
 async def evaluate_interview(request: EvaluateRequest, _user: dict = Depends(get_current_user)):
     assert_interview_owner(db, request.interview_id, _user)
     try:
-        report = generate_evaluation_with_ai(
-            job_type=request.job_type,
+        report = await asyncio.to_thread(generate_evaluation_with_ai, job_type=request.job_type,
             questions=request.questions,
-            answers=request.answers
-        )
+            answers=request.answers)
 
         if not report:
             evaluator = InterviewEvaluator()
@@ -902,33 +914,24 @@ async def evaluate_interview(request: EvaluateRequest, _user: dict = Depends(get
 @app.get("/api/interview/{interview_id}/evaluation-report")
 async def get_evaluation_report(interview_id: int, _user: dict = Depends(get_current_user)):
     """获取面试评估报告（支持异步轮询）"""
-    assert_interview_owner(db, interview_id, _user)
-    cached_report = get_cached_evaluation_report(interview_id)
-    if cached_report:
-        return {
-            "status": "completed",
-            "report": cached_report
-        }
+    interview = assert_interview_owner(db, interview_id, _user)
+    stored = get_cached_evaluation_report(interview_id)
 
-    from fastapi import Query
-    interview = db.get_interview(interview_id)
-    if not interview:
-        return {
-            "status": "not_found",
-            "message": "面试不存在"
-        }
+    if stored:
+        status = stored.get("status")
+        if status == "completed":
+            return {"status": "completed", "report": stored.get("payload")}
+        if status == "failed":
+            # 明确告知失败，而不是永远显示「生成中」，也不塞假报告
+            return {"status": "failed", "message": stored.get("error") or "评估报告生成失败"}
+        return {"status": "generating", "message": "评估报告生成中..."}
 
-    phase = interview.get('phase', '')
-    if phase != 'ended':
-        return {
-            "status": "in_progress",
-            "message": "面试尚未结束"
-        }
+    if interview.get('phase', '') != 'ended':
+        return {"status": "in_progress", "message": "面试尚未结束"}
 
-    return {
-        "status": "generating",
-        "message": "评估报告生成中..."
-    }
+    # 面试已结束却没有任何报告记录：补跑一次，而不是永久卡在 generating。
+    generate_evaluation_report_async(interview_id, interview.get('job_type'))
+    return {"status": "generating", "message": "评估报告生成中..."}
 
 
 def generate_evaluation_with_ai(job_type, questions, answers):
@@ -962,9 +965,9 @@ def generate_evaluation_with_ai(job_type, questions, answers):
 
         if response:
             import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = extract_json(response)
             if json_match:
-                return json.loads(json_match.group())
+                return json_match
     except Exception as e:
         print(f"AI生成评估报告失败: {e}")
     return None
@@ -980,30 +983,13 @@ async def generate_improvement_plan(request: ImprovementPlanRequest, _user: dict
         )
 
         if not improvement_plan or not improvement_plan.get('weaknesses'):
-            improvement_plan = {
-                "weaknesses": ["技术深度有待加强", "项目实战经验需要积累", "表达逻辑可以更清晰"],
-                "suggestions": [
-                    "系统学习核心技术栈，重点关注面试高频考点",
-                    "多做算法题和逻辑题，提高分析问题的能力",
-                    "练习演讲和表达，提高语言组织能力",
-                    "注意回答的条理性，使用结构化的表达方式",
-                    "多进行模拟面试，提高面试的自信心",
-                    "定期复习和总结，巩固所学知识",
-                    "关注行业动态，了解最新技术趋势"
-                ],
-                "resources": [
-                    "《Java核心技术》系列书籍",
-                    "Spring Boot官方文档",
-                    "LeetCode算法题",
-                    "Java并发编程实战",
-                    "《Effective Java》"
-                ],
-                "learning_plan": [
-                    {"week": 1, "title": "基础强化", "tasks": ["系统学习Java核心技术概念", "完成基础练习题", "阅读技术文档", "每天进行15分钟的表达练习"]},
-                    {"week": 2, "title": "技能提升", "tasks": ["学习Spring Boot核心原理", "完成中等难度的练习题", "模拟面试1次", "分析面试常见问题"]},
-                    {"week": 3, "title": "实战演练", "tasks": ["参与实际项目或练习项目", "模拟面试2次", "分析和总结面试表现", "优化回答技巧"]},
-                    {"week": 4, "title": "综合提升", "tasks": ["系统复习所有知识点", "模拟面试3次", "总结提升计划的执行情况", "制定长期学习计划"]}
-                ]
+            # 原先这里会塞一份写死的 Java 提升计划（《Java核心技术》《Effective Java》……），
+            # 不分岗位，用户也无从分辨这是真建议还是兜底。现在如实报告失败。
+            logger.warning("面试 %s 的提升计划生成失败", request.interview_id)
+            return {
+                "status": "failed",
+                "success": False,
+                "detail": "提升计划生成失败，请稍后重试",
             }
 
         # 转换数据格式以匹配前端期望
@@ -1184,12 +1170,10 @@ async def websocket_avatar(websocket: WebSocket, client_id: Optional[str] = None
                     # 生成AI回复
                     try:
                         system_prompt = "你是一个专业的面试官，用简短的语言提问和评价面试者的回答"
-                        response = global_doubao_client.generate_response(
-                            system_prompt,
+                        response = await asyncio.to_thread(global_doubao_client.generate_response, system_prompt,
                             user_text,
                             temperature=0.7,
-                            max_tokens=300
-                        )
+                            max_tokens=300)
                         
                         if response:
                             await websocket.send_text(json.dumps({
@@ -1262,14 +1246,12 @@ async def avatar_asr(request: Request):
                 import dashscope
                 dashscope.base_http_api_url = 'https://dashscope.aliyuncs.com/api/v1'
 
-                tts_response = dashscope.MultiModalConversation.call(
-                    model="qwen3-tts-flash",
+                tts_response = await asyncio.to_thread(dashscope.MultiModalConversation.call, model="qwen3-tts-flash",
                     api_key=dashscope_key,
                     text=ai_response,
                     voice=voice_type,
                     language_type="Chinese",
-                    stream=False
-                )
+                    stream=False)
 
                 if tts_response.status_code == 200:
                     tts_audio_url = tts_response.output.audio.url
@@ -1332,14 +1314,12 @@ async def avatar_tts(request: AvatarMessage):
             print(f"TTS请求: voice={voice_type}, text={text[:50]}...")
             
             # 调用DashScope TTS API
-            response = dashscope.MultiModalConversation.call(
-                model="qwen3-tts-flash",
+            response = await asyncio.to_thread(dashscope.MultiModalConversation.call, model="qwen3-tts-flash",
                 api_key=api_key,
                 text=text,
                 voice=voice_type,
                 language_type="Chinese",
-                stream=False
-            )
+                stream=False)
             
             if response.status_code == 200:
                 # 获取音频URL并下载
@@ -1615,10 +1595,10 @@ def generate_single_question(category, question_type, difficulty="medium"):
 
         if response:
             import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = extract_json(response)
             if json_match:
                 import json as json_lib
-                return json_lib.loads(json_match.group())
+                return json_match
 
     except Exception as e:
         print(f"AI生成题目失败: {e}")
@@ -1687,7 +1667,7 @@ async def generate_selected_questions_api(count_per_category: int = 2, question_
         if question_type not in ["single", "multiple"]:
             question_type = "single"
 
-        generated = generate_selected_questions_batch(count_per_category, question_type)
+        generated = await asyncio.to_thread(generate_selected_questions_batch, count_per_category, question_type)
 
         saved_count = 0
         for q in generated:
@@ -1845,7 +1825,7 @@ async def upload_speech(request: Request, _user: dict = Depends(get_current_user
 
                     try:
                         print(f"开始语音识别...")
-                        result = speech_recognizer.recognize(audio_data)
+                        result = await asyncio.to_thread(speech_recognizer.recognize, audio_data)
                         recognized_text = result.get("text", "").strip()
                         print(f"识别结果: '{recognized_text}'")
                     except Exception as e:
@@ -2066,10 +2046,10 @@ def extract_resume_info(resume_text, job_type):
 
         if response:
             import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = extract_json(response)
             if json_match:
                 import json as json_lib
-                return json_lib.loads(json_match.group())
+                return json_match
 
     except Exception as e:
         print(f"简历信息提取失败: {e}")
@@ -2123,10 +2103,10 @@ def evaluate_resume_quality(resume_text, job_type, interview_id):
 
         if response:
             import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = extract_json(response)
             if json_match:
                 import json as json_lib
-                evaluation = json_lib.loads(json_match.group())
+                evaluation = json_match
                 
                 db.save_resume_evaluation(
                     interview_id=interview_id,
@@ -2188,9 +2168,9 @@ def generate_resume_based_questions(resume_info, job_type, question_count=3):
 
         if response:
             import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = extract_json(response)
             if json_match:
-                result = json_lib.loads(json_match.group())
+                result = json_match
                 return result.get('questions', [])
 
     except Exception as e:
@@ -2207,7 +2187,7 @@ def generate_resume_based_questions(resume_info, job_type, question_count=3):
 async def extract_resume(request: ResumeExtractRequest):
     """提取简历关键信息"""
     try:
-        resume_info = extract_resume_info(request.resume_text, request.job_type)
+        resume_info = await asyncio.to_thread(extract_resume_info, request.resume_text, request.job_type)
         return {"status": "success", "resume_info": resume_info}
     except Exception as e:
         print(f"简历提取API失败: {e}")
@@ -2227,7 +2207,7 @@ async def evaluate_resume(request: ResumeEvaluationRequest, _user: dict = Depend
         if not resume_text:
             raise HTTPException(status_code=400, detail="简历内容不存在")
 
-        evaluation = evaluate_resume_quality(resume_text, request.job_type, request.interview_id)
+        evaluation = await asyncio.to_thread(evaluate_resume_quality, resume_text, request.job_type, request.interview_id)
         return {"status": "success", "evaluation": evaluation}
     except HTTPException:
         raise
@@ -2264,8 +2244,8 @@ async def get_resume_evaluation(interview_id: int, _user: dict = Depends(get_cur
 async def generate_questions_from_resume(request: ResumeExtractRequest):
     """根据简历生成针对性问题"""
     try:
-        resume_info = extract_resume_info(request.resume_text, request.job_type)
-        questions = generate_resume_based_questions(resume_info, request.job_type, 3)
+        resume_info = await asyncio.to_thread(extract_resume_info, request.resume_text, request.job_type)
+        questions = await asyncio.to_thread(generate_resume_based_questions, resume_info, request.job_type, 3)
         return {"status": "success", "questions": questions, "resume_info": resume_info}
     except Exception as e:
         print(f"生成简历问题API失败: {e}")
