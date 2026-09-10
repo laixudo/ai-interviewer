@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   gender: {
@@ -83,6 +83,13 @@ defineExpose({
   stopSpeaking,
   changeModel
 })
+
+// 原先两个 setInterval 都没有卸载清理，onUnmounted 钩子也不存在
+onUnmounted(() => {
+  if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null }
+  if (nodInterval) { clearInterval(nodInterval); nodInterval = null }
+})
+
 </script>
 
 <style scoped>

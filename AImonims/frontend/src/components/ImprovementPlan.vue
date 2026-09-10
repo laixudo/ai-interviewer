@@ -22,7 +22,7 @@
           <h3 class="section-title">能力短板</h3>
         </div>
         <div class="weaknesses-list">
-          <div v-for="(item, index) in plan.weakness_analysis" :key="index" class="weakness-item">
+          <div v-for="(item, index) in safePlan.weakness_analysis" :key="index" class="weakness-item">
             <div class="card-glow"></div>
             <div class="item-icon">!</div>
             <span>{{ item.weakness }}</span>
@@ -38,7 +38,7 @@
           <h3 class="section-title">提升建议</h3>
         </div>
         <div class="suggestions-list">
-          <div v-for="(item, index) in plan.improvement_suggestions" :key="index" class="suggestion-item">
+          <div v-for="(item, index) in safePlan.improvement_suggestions" :key="index" class="suggestion-item">
             <div class="card-glow"></div>
             <div class="item-icon">✓</div>
             <div class="suggestion-content">
@@ -57,7 +57,7 @@
           <h3 class="section-title">推荐学习资源</h3>
         </div>
         <div class="resources-list">
-          <div v-for="(resource, index) in plan.learning_resources" :key="index" class="resource-item">
+          <div v-for="(resource, index) in safePlan.learning_resources" :key="index" class="resource-item">
             <div class="card-glow"></div>
             <div class="item-icon">📖</div>
             <div class="resource-content">
@@ -78,7 +78,7 @@
           <h3 class="section-title">30天学习计划</h3>
         </div>
         <div class="learning-plan">
-          <div v-for="(weekPlan, index) in plan.thirty_day_plan" :key="index" class="week-plan">
+          <div v-for="(weekPlan, index) in safePlan.thirty_day_plan" :key="index" class="week-plan">
             <div class="week-header">
               <span class="week-number">第{{ weekPlan.week }}周</span>
               <span class="week-title">{{ weekPlan.focus }}</span>
@@ -118,7 +118,19 @@ export default {
   props: {
     plan: {
       type: Object,
-      default: () => ({})
+      default: null
+    }
+  },
+  computed: {
+    safePlan() {
+      const p = this.plan || {}
+      return {
+        weakness_analysis: p.weakness_analysis || [],
+        improvement_suggestions: p.improvement_suggestions || [],
+        learning_resources: p.learning_resources || [],
+        thirty_day_plan: p.thirty_day_plan || [],
+        study_advice: p.study_advice || ''
+      }
     }
   },
   emits: ['back', 'back-home']

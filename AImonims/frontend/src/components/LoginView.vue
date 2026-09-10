@@ -75,6 +75,7 @@ export default {
             role: data.role
           }
           localStorage.setItem('userData', JSON.stringify(userInfo))
+          if (data.token) localStorage.setItem('authToken', data.token)
 
           if (data.role === 'admin') {
             this.$message.success('管理员登录成功，即将跳转...')

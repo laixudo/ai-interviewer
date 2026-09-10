@@ -1,3 +1,5 @@
+from errors import log_exception
+
 import json
 from datetime import datetime
 
@@ -62,7 +64,9 @@ def register_prep_center_routes(app, get_db):
                 "pageSize": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -79,7 +83,9 @@ def register_prep_center_routes(app, get_db):
             categories = [{"name": row[0], "count": row[1]} for row in cursor.fetchall()]
             return {"success": True, "data": categories}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -112,7 +118,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": tip}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -158,7 +166,9 @@ def register_prep_center_routes(app, get_db):
             conn.commit()
             return {"success": True, "is_collected": bool(is_collected)}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -185,7 +195,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "resume_id": resume_id}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -203,7 +215,9 @@ def register_prep_center_routes(app, get_db):
             resumes = [dict(row) for row in cursor.fetchall()]
             return {"success": True, "data": resumes}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -236,7 +250,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": resume}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -298,7 +314,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": analysis_result}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -314,7 +332,9 @@ def register_prep_center_routes(app, get_db):
             conn.commit()
             return {"success": True, "message": "删除成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -344,7 +364,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "application_id": application_id}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -386,7 +408,9 @@ def register_prep_center_routes(app, get_db):
                 "pageSize": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -427,7 +451,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "message": "更新成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -442,7 +468,9 @@ def register_prep_center_routes(app, get_db):
             conn.commit()
             return {"success": True, "message": "删除成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -473,7 +501,9 @@ def register_prep_center_routes(app, get_db):
                 }
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -537,7 +567,9 @@ def register_prep_center_routes(app, get_db):
                 "pageSize": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -574,7 +606,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": post}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -603,7 +637,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "post_id": post_id}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -621,7 +657,9 @@ def register_prep_center_routes(app, get_db):
             conn.commit()
             return {"success": True}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -650,7 +688,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -691,7 +731,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": resumes}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -751,7 +793,9 @@ def register_prep_center_routes(app, get_db):
 
             return {"success": True, "data": recommendations}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("prep_center_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 

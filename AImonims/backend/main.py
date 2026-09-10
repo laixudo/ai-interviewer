@@ -619,9 +619,11 @@ async def start_interview(request: InterviewRequest, user_id: Optional[int] = No
         }
     except Exception as e:
         print(f"开始面试失败: {e}")
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
             "error": "开始面试失败",
-            "message": str(e)
+            "message": _msg
         }
 
 @app.post("/api/interview/message")
@@ -905,9 +907,11 @@ async def evaluate_interview(request: EvaluateRequest, _user: dict = Depends(get
         return report
     except Exception as e:
         print(f"评估失败: {e}")
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
             "error": "评估失败",
-            "message": str(e)
+            "message": _msg
         }
 
 
@@ -1059,9 +1063,11 @@ async def generate_improvement_plan(request: ImprovementPlanRequest, _user: dict
         return formatted_plan
     except Exception as e:
         print(f"生成提升计划失败: {e}")
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
             "error": "生成提升计划失败",
-            "message": str(e)
+            "message": _msg
         }
 
 @app.get("/api/interview/history")
@@ -1286,7 +1292,9 @@ async def avatar_asr(request: Request):
         print(f"数字人面试流程失败: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"处理失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "处理失败: " + _msg}
 
 @app.post("/api/avatar/tts")
 async def avatar_tts(request: AvatarMessage):
@@ -1344,11 +1352,15 @@ async def avatar_tts(request: AvatarMessage):
             print(f"阿里云TTS调用失败: {tts_error}")
             import traceback
             traceback.print_exc()
-            return {"error": f"TTS服务暂时不可用: {str(tts_error)}"}
+            _trace = log_exception("main.py", tts_error)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"error": "TTS服务暂时不可用: " + _msg}
 
     except Exception as e:
         print(f"TTS处理失败: {e}")
-        return {"error": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": _msg}
 
 # 数字人视频生成相关API
 class AvatarVideoRequest(BaseModel):
@@ -1472,7 +1484,9 @@ async def generate_avatar_video(request: AvatarVideoRequest):
         print(f"数字人视频生成失败: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"数字人视频生成失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "数字人视频生成失败: " + _msg}
 
 @app.get("/api/exam/questions")
 async def get_exam_questions(category: Optional[str] = None, limit: Optional[int] = None):
@@ -1529,9 +1543,11 @@ async def recommend_resources(request: RecommendResourcesRequest, _user: dict = 
                 }
     except Exception as e:
         print(f"推荐学习资源失败: {e}")
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
             "error": "推荐失败",
-            "message": str(e)
+            "message": _msg
         }
 
 @app.get("/api/learning/history-analysis")
@@ -1562,9 +1578,11 @@ async def analyze_history(user_id: Optional[int] = None, _user: dict = Depends(g
             }
     except Exception as e:
         print(f"历史分析失败: {e}")
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
             "error": "分析失败",
-            "message": str(e)
+            "message": _msg
         }
 
 CATEGORIES = ["组织协调", "应急应变", "技术能力", "言语表达", "项目经验"]
@@ -1651,7 +1669,9 @@ async def get_selected_questions(
         return {"questions": questions, "total": len(questions)}
     except Exception as e:
         print(f"获取精选题库失败: {e}")
-        return {"questions": [], "total": 0, "error": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"questions": [], "total": 0, "error": _msg}
 
 
 @app.get("/api/selected-questions/categories")
@@ -1699,7 +1719,9 @@ async def generate_selected_questions_api(count_per_category: int = 2, question_
         }
     except Exception as e:
         print(f"生成精选题库失败: {e}")
-        return {"error": "生成失败", "message": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "生成失败", "message": _msg}
 
 
 @app.get("/api/selected-questions/stats")
@@ -1725,7 +1747,9 @@ async def get_question_stats():
         }
     except Exception as e:
         print(f"获取题库统计失败: {e}")
-        return {"error": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": _msg}
 
 
 @app.delete("/api/selected-questions/{question_id}")
@@ -1756,7 +1780,9 @@ async def search_questions(keyword: str, category: Optional[str] = None, questio
         return {"questions": questions, "total": len(questions)}
     except Exception as e:
         print(f"搜索失败: {e}")
-        return {"questions": [], "total": 0, "error": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"questions": [], "total": 0, "error": _msg}
 
 
 @app.websocket("/ws/{client_id}")
@@ -1913,7 +1939,9 @@ async def upload_speech(request: Request, _user: dict = Depends(get_current_user
         print(f"语音上传失败: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"处理失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "处理失败: " + _msg}
 
 @app.get("/api/speech/record/{record_id}")
 async def get_speech_record(record_id: int, _user: dict = Depends(get_current_user)):
@@ -1934,7 +1962,9 @@ async def get_speech_record(record_id: int, _user: dict = Depends(get_current_us
         raise
     except Exception as e:
         print(f"获取语音记录失败: {e}")
-        return {"error": f"获取失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取失败: " + _msg}
 
 @app.get("/api/speech/records/{interview_id}")
 async def get_speech_records(interview_id: int, _user: dict = Depends(get_current_user)):
@@ -1948,7 +1978,9 @@ async def get_speech_records(interview_id: int, _user: dict = Depends(get_curren
         return {"records": records}
     except Exception as e:
         print(f"获取语音记录失败: {e}")
-        return {"error": f"获取失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取失败: " + _msg}
 
 @app.get("/api/speech/summary/{interview_id}")
 async def get_speech_summary(interview_id: int, _user: dict = Depends(get_current_user)):
@@ -1968,7 +2000,9 @@ async def get_speech_summary(interview_id: int, _user: dict = Depends(get_curren
             }
     except Exception as e:
         print(f"获取语音分析汇总失败: {e}")
-        return {"error": f"获取失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取失败: " + _msg}
 
 
 if __name__ == "__main__":
@@ -2191,7 +2225,9 @@ async def extract_resume(request: ResumeExtractRequest):
         return {"status": "success", "resume_info": resume_info}
     except Exception as e:
         print(f"简历提取API失败: {e}")
-        return {"status": "error", "message": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"status": "error", "message": _msg}
 
 
 @app.post("/api/resume/evaluate")
@@ -2213,7 +2249,9 @@ async def evaluate_resume(request: ResumeEvaluationRequest, _user: dict = Depend
         raise
     except Exception as e:
         print(f"简历评价API失败: {e}")
-        return {"status": "error", "message": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"status": "error", "message": _msg}
 
 
 @app.get("/api/resume/evaluation/{interview_id}")
@@ -2237,7 +2275,9 @@ async def get_resume_evaluation(interview_id: int, _user: dict = Depends(get_cur
             return {"status": "not_found", "message": "简历评价不存在"}
     except Exception as e:
         print(f"获取简历评价API失败: {e}")
-        return {"status": "error", "message": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"status": "error", "message": _msg}
 
 
 @app.post("/api/resume/generate-questions")
@@ -2249,18 +2289,38 @@ async def generate_questions_from_resume(request: ResumeExtractRequest):
         return {"status": "success", "questions": questions, "resume_info": resume_info}
     except Exception as e:
         print(f"生成简历问题API失败: {e}")
-        return {"status": "error", "message": str(e)}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"status": "error", "message": _msg}
+
+
+MAX_RESUME_PDF_BYTES = 10 * 1024 * 1024
 
 
 @app.post("/api/resume/parse-pdf")
-async def parse_resume_pdf(file: UploadFile = File(...)):
-    """解析 PDF 简历"""
+async def parse_resume_pdf(file: UploadFile = File(...), _user: dict = Depends(get_current_user)):
+    """解析 PDF 简历。
+
+    修复前：不校验类型和大小，整份文件直接 read() 进内存（任意大小都收），
+    且 pdfplumber 抛异常时会跳过 os.unlink，临时文件持续泄漏。
+    """
+    import tempfile
+
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="只支持 PDF 文件")
+
+    content = await file.read(MAX_RESUME_PDF_BYTES + 1)
+    if len(content) > MAX_RESUME_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="文件超过 10 MB 限制")
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="文件内容不是有效的 PDF")
+
+    tmp_path = None
     try:
         import pdfplumber
-        import tempfile
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-            content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
 
@@ -2271,17 +2331,23 @@ async def parse_resume_pdf(file: UploadFile = File(...)):
                 if page_text:
                     text += page_text + "\n"
 
-        os.unlink(tmp_path)
-
         if not text.strip():
             return {"status": "success", "text": "", "message": "PDF 中未提取到文本"}
 
         return {"status": "success", "text": text.strip()}
-    except Exception as e:
-        print(f"PDF 解析失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"status": "error", "message": str(e)}
+    except ImportError:
+        logger.warning("未安装 pdfplumber，PDF 解析不可用")
+        raise HTTPException(status_code=503, detail="服务端未安装 PDF 解析组件")
+    except Exception as exc:
+        trace_id = log_exception("parse_resume_pdf", exc)
+        return {"status": "error", "message": "PDF 解析失败 (trace_id=%s)" % trace_id}
+    finally:
+        # 无论成功失败都清理临时文件
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                logger.warning("临时文件删除失败: %s", tmp_path)
 
 
 # ==================== 面部分析相关功能 ====================
@@ -2396,7 +2462,9 @@ async def save_face_analysis(request: Request, _user: dict = Depends(get_current
         }
     except Exception as e:
         print(f"保存面部分析失败: {e}")
-        return {"error": f"保存失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "保存失败: " + _msg}
 
 
 @app.get("/api/interview/face-analysis/{interview_id}")
@@ -2414,7 +2482,9 @@ async def get_face_analysis(interview_id: int, _user: dict = Depends(get_current
         }
     except Exception as e:
         print(f"获取面部分析失败: {e}")
-        return {"error": f"获取失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取失败: " + _msg}
 
 
 @app.get("/api/interview/face-analysis-summary/{interview_id}")
@@ -2435,7 +2505,9 @@ async def get_face_analysis_summary_api(interview_id: int, _user: dict = Depends
             }
     except Exception as e:
         print(f"获取面部分析汇总失败: {e}")
-        return {"error": f"获取失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取失败: " + _msg}
 
 
 
@@ -2552,7 +2624,9 @@ async def generate_comprehensive_report(request: ComprehensiveReportRequest, _us
         print(f"生成综合报告失败: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": f"生成综合报告失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "生成综合报告失败: " + _msg}
 
 
 def generate_overall_assessment(score, face_summary, resume_evaluation, speech_summary=None):
@@ -2627,7 +2701,9 @@ async def get_full_evaluation(interview_id: int, _user: dict = Depends(get_curre
         }
     except Exception as e:
         print(f"获取完整评估失败: {e}")
-        return {"error": f"获取完整评估失败: {str(e)}"}
+        _trace = log_exception("main.py", e)
+        _msg = "服务器内部错误 (trace_id=%s)" % _trace
+        return {"error": "获取完整评估失败: " + _msg}
 
 
 class LoginRequest(BaseModel):

@@ -389,6 +389,7 @@ export default {
         if (data.success) {
           const userInfo = { id: data.user_id, username: data.username, role: data.role }
           localStorage.setItem('userData', JSON.stringify(userInfo))
+          if (data.token) localStorage.setItem('authToken', data.token)
 
           this.$message.success('登录成功！')
           this.$emit('login-success', userInfo)

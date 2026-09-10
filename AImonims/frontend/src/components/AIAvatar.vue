@@ -150,6 +150,11 @@ export default {
       this.audioElement.pause()
       this.audioElement = null
     }
+    // 眨眼定时器原先没有句柄也从不清理，组件卸载后仍在轮询 DOM
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer)
+      this.blinkTimer = null
+    }
   },
   methods: {
     async loadVoices() {
@@ -251,7 +256,8 @@ export default {
       }
     },
     startBlinkAnimation() {
-      setInterval(() => {
+      if (this.blinkTimer) clearInterval(this.blinkTimer)
+      this.blinkTimer = setInterval(() => {
         if (this.isAISpeaking || this.currentMood === 'speaking') return
         const blinkLids = document.querySelectorAll('.blink-lid-left, .blink-lid-right')
         blinkLids.forEach(lid => {

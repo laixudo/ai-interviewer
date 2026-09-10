@@ -249,22 +249,9 @@ export default {
   },
   methods: {
     checkLoginStatus() {
-      const urlParams = new URLSearchParams(window.location.search)
-      const adminParam = urlParams.get('admin')
-      
-      if (adminParam) {
-        try {
-          const admin = JSON.parse(atob(adminParam))
-          if (admin.role === 'admin') {
-            this.userInfo = admin
-            this.isLoggedIn = true
-            localStorage.setItem('adminData', JSON.stringify(this.userInfo))
-            window.history.replaceState({}, '', window.location.pathname)
-            this.loadAllData()
-            return
-          }
-        } catch (e) { console.error('解析 URL 参数失败:', e) }
-      }
+      // 已移除 ?admin=<base64> 的 URL 提权分支：原来只要构造
+      // btoa('{"role":"admin"}') 放进地址栏就能进管理后台。
+      // 管理员身份现在只能由后端签发的令牌证明。
       
       const adminData = localStorage.getItem('adminData')
       if (adminData) {
@@ -353,6 +340,7 @@ export default {
         if (data.success) {
           const userInfo = { id: data.user_id, username: data.username, role: data.role }
           localStorage.setItem('userData', JSON.stringify(userInfo))
+          if (data.token) localStorage.setItem('authToken', data.token)
           if (data.role === 'admin') {
             this.userInfo = userInfo
             this.isLoggedIn = true

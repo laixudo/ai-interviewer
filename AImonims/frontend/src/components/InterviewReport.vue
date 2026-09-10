@@ -23,14 +23,14 @@
         <div class="overall-score">
           <div class="score-circle">
             <div class="score-circle-inner">
-              <span class="score-value">{{ report.overall_score }}</span>
+              <span class="score-value">{{ safeReport.overall_score }}</span>
               <span class="score-unit">分</span>
             </div>
             <div class="score-glow"></div>
           </div>
           <div class="score-info">
-            <div class="score-level">{{ report.overall_level }}</div>
-            <div class="score-date">{{ report.timestamp }}</div>
+            <div class="score-level">{{ safeReport.overall_level }}</div>
+            <div class="score-date">{{ safeReport.timestamp }}</div>
           </div>
         </div>
       </div>
@@ -41,7 +41,7 @@
           <h3 class="section-title">内容评估</h3>
         </div>
         <div class="evaluation-grid">
-          <div v-for="(result, criterion) in report.content_evaluation" :key="criterion" class="evaluation-card">
+          <div v-for="(result, criterion) in safeReport.content_evaluation" :key="criterion" class="evaluation-card">
             <div class="evaluation-content">
               <div class="evaluation-label">{{ result.comment }}</div>
               <div class="score-display">
@@ -61,7 +61,7 @@
           <h3 class="section-title">表达评估</h3>
         </div>
         <div class="evaluation-grid">
-          <div v-for="(result, item) in report.expression_evaluation" :key="item" class="evaluation-card">
+          <div v-for="(result, item) in safeReport.expression_evaluation" :key="item" class="evaluation-card">
             <div class="evaluation-content">
               <div class="evaluation-label">{{ result.comment }}</div>
               <div class="score-display">
@@ -81,36 +81,36 @@
           <h3 class="section-title">语音评估</h3>
         </div>
         <div class="evaluation-grid">
-          <div v-if="report.expression_evaluation.voice_tone" class="evaluation-card">
+          <div v-if="safeReport.expression_evaluation.voice_tone" class="evaluation-card">
             <div class="evaluation-content">
-              <div class="evaluation-label">{{ report.expression_evaluation.voice_tone.comment }}</div>
+              <div class="evaluation-label">{{ safeReport.expression_evaluation.voice_tone.comment }}</div>
               <div class="score-display">
                 <div class="score-bar">
-                  <div class="score-fill" :style="{ width: Math.min((report.expression_evaluation.voice_tone.score / 30) * 100, 100) + '%' }"></div>
+                  <div class="score-fill" :style="{ width: Math.min((safeReport.expression_evaluation.voice_tone.score / 30) * 100, 100) + '%' }"></div>
                 </div>
-                <div class="evaluation-score">{{ report.expression_evaluation.voice_tone.score }}分</div>
+                <div class="evaluation-score">{{ safeReport.expression_evaluation.voice_tone.score }}分</div>
               </div>
             </div>
           </div>
-          <div v-if="report.expression_evaluation.speech_rate" class="evaluation-card">
+          <div v-if="safeReport.expression_evaluation.speech_rate" class="evaluation-card">
             <div class="evaluation-content">
-              <div class="evaluation-label">{{ report.expression_evaluation.speech_rate.comment }}</div>
+              <div class="evaluation-label">{{ safeReport.expression_evaluation.speech_rate.comment }}</div>
               <div class="score-display">
                 <div class="score-bar">
-                  <div class="score-fill" :style="{ width: Math.min((report.expression_evaluation.speech_rate.score / 30) * 100, 100) + '%' }"></div>
+                  <div class="score-fill" :style="{ width: Math.min((safeReport.expression_evaluation.speech_rate.score / 30) * 100, 100) + '%' }"></div>
                 </div>
-                <div class="evaluation-score">{{ report.expression_evaluation.speech_rate.score }}分</div>
+                <div class="evaluation-score">{{ safeReport.expression_evaluation.speech_rate.score }}分</div>
               </div>
             </div>
           </div>
-          <div v-if="report.expression_evaluation.voice_volume" class="evaluation-card">
+          <div v-if="safeReport.expression_evaluation.voice_volume" class="evaluation-card">
             <div class="evaluation-content">
-              <div class="evaluation-label">{{ report.expression_evaluation.voice_volume.comment }}</div>
+              <div class="evaluation-label">{{ safeReport.expression_evaluation.voice_volume.comment }}</div>
               <div class="score-display">
                 <div class="score-bar">
-                  <div class="score-fill" :style="{ width: Math.min((report.expression_evaluation.voice_volume.score / 30) * 100, 100) + '%' }"></div>
+                  <div class="score-fill" :style="{ width: Math.min((safeReport.expression_evaluation.voice_volume.score / 30) * 100, 100) + '%' }"></div>
                 </div>
-                <div class="evaluation-score">{{ report.expression_evaluation.voice_volume.score }}分</div>
+                <div class="evaluation-score">{{ safeReport.expression_evaluation.voice_volume.score }}分</div>
               </div>
             </div>
           </div>
@@ -123,7 +123,7 @@
           <h3 class="section-title">亮点分析</h3>
         </div>
         <div class="highlights-list">
-          <div v-for="(highlight, index) in report.highlights" :key="index" class="highlight-card">
+          <div v-for="(highlight, index) in safeReport.highlights" :key="index" class="highlight-card">
             <div class="card-glow"></div>
             <div class="card-icon">✓</div>
             <div class="card-content">
@@ -139,7 +139,7 @@
           <h3 class="section-title">改进建议</h3>
         </div>
         <div class="suggestions-list">
-          <div v-for="(suggestion, index) in report.improvement_suggestions" :key="index" class="suggestion-card">
+          <div v-for="(suggestion, index) in safeReport.improvement_suggestions" :key="index" class="suggestion-card">
             <div class="card-glow"></div>
             <div class="card-icon">⚡</div>
             <div class="card-content">
@@ -173,7 +173,23 @@ export default {
   props: {
     report: {
       type: Object,
-      default: () => ({})
+      default: null
+    }
+  },
+  computed: {
+    // Vue 的 default 只在 prop 为 undefined 时生效，显式传 null 不会兜底，
+    // 因此这里统一归一化，模板一律用 safeReport。
+    safeReport() {
+      const r = this.report || {}
+      return {
+        overall_score: r.overall_score ?? '--',
+        overall_level: r.overall_level ?? '待评估',
+        timestamp: r.timestamp ?? '',
+        content_evaluation: r.content_evaluation || {},
+        expression_evaluation: r.expression_evaluation || {},
+        highlights: r.highlights || [],
+        suggestions: r.suggestions || []
+      }
     }
   },
   emits: ['back', 'restart', 'view-plan', 'back-home']

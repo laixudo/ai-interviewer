@@ -1,0 +1,23 @@
+# 可选：语音识别与音频分析。体积很大（torch 约 2 GB），只在需要语音答题、
+# 语速/清晰度分析或面部分析时才装。
+#
+# 安装：pip install -r requirements.txt -r requirements-speech.txt
+#
+# 未安装时的行为：backend/ai/speech_recognizer.py 会捕获 ImportError，
+# 把 AUDIO_STACK_AVAILABLE 置为 False，语音接口返回明确的错误提示，
+# 其余功能不受影响。
+
+numpy>=1.26,<3.0
+pydub==0.25.1
+imageio-ffmpeg==0.6.0        # 提供 ffmpeg 可执行文件，pydub 解码 webm 录音要用
+librosa==0.11.0              # 语速 / 音高 / 清晰度分析
+
+# 语音识别引擎，二选一即可（代码优先用 Whisper，失败回退 Vosk）
+openai-whisper>=20231117     # 需要 torch，体积大
+vosk>=0.3.45                 # 轻量，需另行下载中文模型到 models/ 并配置 VOSK_MODEL_PATH
+
+# 面部分析（backend/ai/doubao_client.py 中的图像预处理）
+opencv-python>=4.8,<5.0
+
+# 阿里云 ASR SDK（backend/ai/aliyun_asr.py，当前未被主流程调用）
+aliyun-python-sdk-core>=2.15

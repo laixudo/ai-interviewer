@@ -342,6 +342,11 @@ export default {
   data() {
     return {
       mounted: false,
+      // 图表实例与 resize 监听的登记表：
+      // 原先每次渲染都新增一个匿名 resize 监听且从不移除，
+      // 3 个 echarts.init 也只配了 1 个 dispose。
+      chartInstances: [],
+      resizeHandler: null,
       displayScore: 0,
       isRefreshing: false,
       expandedDimension: null,
@@ -442,6 +447,12 @@ export default {
     }
   },
   mounted() {
+    this.resizeHandler = () => {
+      this.chartInstances.forEach(chart => {
+        if (chart && !chart.isDisposed()) chart.resize()
+      })
+    }
+    window.addEventListener('resize', this.resizeHandler)
     setTimeout(() => {
       this.mounted = true
     }, 100)
@@ -452,7 +463,20 @@ export default {
       this.animateScore()
     })
   },
+  beforeUnmount() {
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler)
+      this.resizeHandler = null
+    }
+    this.chartInstances.forEach(chart => {
+      if (chart && !chart.isDisposed()) chart.dispose()
+    })
+    this.chartInstances = []
+  },
   methods: {
+    registerChart(chart) {
+      if (chart && !this.chartInstances.includes(chart)) this.chartInstances.push(chart)
+    },
     async loadAbilityProfile() {
       const userData = localStorage.getItem('userData')
       if (!userData) return
@@ -557,6 +581,7 @@ export default {
       if (!chartDom) return
 
       const chart = echarts.init(chartDom)
+      this.registerChart(chart)
       const option = {
         grid: {
           left: '10%',
@@ -706,9 +731,7 @@ export default {
 
       myChart.setOption(option)
       
-      window.addEventListener('resize', () => {
-        myChart.resize()
-      })
+      this.registerChart(myChart)
     },
     initTrendChart() {
       const chartDom = document.getElementById('trendChart')
@@ -832,9 +855,7 @@ export default {
 
       myChart.setOption(option)
 
-      window.addEventListener('resize', () => {
-        myChart.resize()
-      })
+      this.registerChart(myChart)
     }
   }
 }

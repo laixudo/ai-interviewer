@@ -6,6 +6,7 @@
 from fastapi import Depends, HTTPException
 
 from auth import get_current_user, require_admin
+from errors import log_exception
 
 def register_admin_routes(app, get_db):
     """注册管理员端 API 路由
@@ -73,7 +74,9 @@ def register_admin_routes(app, get_db):
                 "totalSelected": total_selected
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/users")
@@ -132,7 +135,9 @@ def register_admin_routes(app, get_db):
                 "page_size": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/interviews")
@@ -195,7 +200,9 @@ def register_admin_routes(app, get_db):
                 "page_size": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.delete("/api/admin/interviews/{interview_id}")
@@ -215,7 +222,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "记录不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/interview-detail")
@@ -324,7 +333,9 @@ def register_admin_routes(app, get_db):
                 "plan": plan
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/exam-questions")
@@ -379,7 +390,9 @@ def register_admin_routes(app, get_db):
                 "page_size": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.post("/api/admin/exam-questions")
@@ -400,7 +413,9 @@ def register_admin_routes(app, get_db):
 
             return {"success": True, "question_id": question_id, "message": "创建成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.put("/api/admin/exam-questions/{question_id}")
@@ -425,7 +440,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "记录不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.delete("/api/admin/exam-questions/{question_id}")
@@ -445,7 +462,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "记录不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/selected-questions")
@@ -502,7 +521,9 @@ def register_admin_routes(app, get_db):
                 "page_size": page_size
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.post("/api/admin/selected-questions")
@@ -523,7 +544,9 @@ def register_admin_routes(app, get_db):
 
             return {"success": True, "question_id": question_id, "message": "创建成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.put("/api/admin/selected-questions/{question_id}")
@@ -548,7 +571,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "记录不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.delete("/api/admin/selected-questions/{question_id}")
@@ -568,7 +593,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "记录不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.delete("/api/admin/users/{user_id}")
@@ -600,7 +627,9 @@ def register_admin_routes(app, get_db):
             else:
                 return {"success": False, "error": "用户不存在"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     @app.get("/api/admin/categories")
@@ -624,7 +653,9 @@ def register_admin_routes(app, get_db):
                 "selected_categories": selected_categories
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
 
     async def _ability_profile(user_id: int):
@@ -723,7 +754,9 @@ def register_admin_routes(app, get_db):
                 ]
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("admin_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
 
     @app.get("/api/user/ability-profile")
     async def get_my_ability_profile(_user: dict = Depends(get_current_user)):

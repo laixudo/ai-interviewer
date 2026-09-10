@@ -1,3 +1,5 @@
+from errors import log_exception
+
 import json
 from datetime import datetime
 
@@ -35,7 +37,9 @@ def register_favorites_routes(app, get_db):
             conn.commit()
             return {"success": True, "message": "收藏成功", "is_favorited": True}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("favorites_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -58,7 +62,9 @@ def register_favorites_routes(app, get_db):
             conn.commit()
             return {"success": True, "message": "已取消收藏", "is_favorited": False}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("favorites_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -93,7 +99,9 @@ def register_favorites_routes(app, get_db):
 
             return {"success": True, "data": favorites}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("favorites_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -112,7 +120,9 @@ def register_favorites_routes(app, get_db):
 
             return {"success": True, "is_favorited": existing is not None}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("favorites_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 
@@ -151,7 +161,9 @@ def register_favorites_routes(app, get_db):
                 conn.commit()
                 return {"success": True, "is_favorited": True, "message": "收藏成功"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            _trace = log_exception("favorites_api.py", e)
+            _msg = "服务器内部错误 (trace_id=%s)" % _trace
+            return {"success": False, "error": _msg}
         finally:
             conn.close()
 

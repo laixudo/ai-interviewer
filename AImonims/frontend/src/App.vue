@@ -123,7 +123,7 @@
     
     <!-- 面试评估报告页面 -->
     <InterviewReport 
-      v-show="currentPage === 'interviewReport'"
+      v-if="currentPage === 'interviewReport' && interviewReport"
       :report="interviewReport"
       @back="currentPage = 'aiInterviewChat'"
       @restart="currentPage = 'aiInterview'"
@@ -133,7 +133,7 @@
     
     <!-- 能力提升计划页面 -->
     <ImprovementPlan 
-      v-show="currentPage === 'improvementPlan'"
+      v-if="currentPage === 'improvementPlan' && improvementPlan"
       :plan="improvementPlan"
       @back="currentPage = 'interviewReport'"
       @back-home="currentPage = 'home'"
@@ -826,46 +826,12 @@ export default {
         round: '结构化面试'
       },
       showReport: false,
-      interviewReport: {
-        overall_score: 85,
-        overall_level: '优秀',
-        timestamp: new Date().toLocaleString(),
-        content_evaluation: {
-          technical: { comment: '技术知识掌握扎实', score: 90 },
-          logic: { comment: '逻辑思维清晰', score: 85 },
-          communication: { comment: '沟通表达流畅', score: 80 }
-        },
-        expression_evaluation: {
-          clarity: { comment: '表达清晰', score: 85 },
-          confidence: { comment: '自信度良好', score: 80 },
-          speed: { comment: '语速适中', score: 90 }
-        },
-        highlights: ['技术知识掌握扎实', '逻辑思维清晰', '沟通表达流畅'],
-        suggestions: ['加强项目经验的描述', '提高问题分析能力', '增强技术深度']
-      },
-      improvementPlan: {
-        weakness_analysis: [
-          { weakness: '技术深度不足', severity: '中' },
-          { weakness: '项目经验不够丰富', severity: '中' },
-          { weakness: '沟通表达需要加强', severity: '中' }
-        ],
-        improvement_suggestions: [
-          { suggestion: '系统学习核心技术栈', category: '技术提升', priority: '高' },
-          { suggestion: '参与更多实际项目', category: '项目经验', priority: '高' },
-          { suggestion: '练习演讲和表达', category: '沟通提升', priority: '中' }
-        ],
-        learning_resources: [
-          { title: '技术文档', type: '在线课程', url: '' },
-          { title: '在线课程', type: '视频', url: '' },
-          { title: '实战项目', type: '项目', url: '' }
-        ],
-        thirty_day_plan: [
-          { week: 1, focus: '技术基础强化', daily_tasks: ['学习核心技术概念', '完成基础练习题', '阅读技术文档'], expected_outcome: '掌握核心基础' },
-          { week: 2, focus: '项目经验积累', daily_tasks: ['参与实际项目', '分析项目案例', '总结项目经验'], expected_outcome: '积累项目经验' },
-          { week: 3, focus: '沟通表达提升', daily_tasks: ['练习演讲', '模拟面试', '学习沟通技巧'], expected_outcome: '提升表达能力' },
-          { week: 4, focus: '综合能力提升', daily_tasks: ['系统复习', '模拟面试', '总结提升'], expected_outcome: '全面提升' }
-        ]
-      },
+      // 初始为空：修复前这里预置了 85 分「优秀」和一整套假点评/假提升计划，
+      // 在真实报告到达前（或生成失败时）用户看到的是编造的数据。
+      interviewReport: null,
+      improvementPlan: null,
+      reportStatus: 'idle',      // idle | generating | completed | failed
+      reportError: '',
       recognition: null,
       searchQuery: '',
       isLoggedIn: false,

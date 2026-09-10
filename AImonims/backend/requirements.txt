@@ -1,16 +1,23 @@
-fastapi
-uvicorn
-pydantic
-python-dotenv
-langchain
-chromadb
-openai
-volcengine
-httpx
-python-multipart
-torch
-aiortc
-modelscope
-aiohttp
-websockets
-dashscope
+# 核心运行依赖 —— 装完这些即可启动后端并跑通文字面试全流程。
+# 版本为本项目最小验证环境中实测可用的版本。
+#
+# 修复前这份清单缺 11 个真实导入的包（requests、numpy、pdfplumber…），
+# 又列了 6 个全代码库无人 import 的包（langchain、chromadb、volcengine、
+# modelscope、aiortc、aiohttp），且没有任何版本约束。
+
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.5
+python-dotenv==1.2.3
+python-multipart==0.0.32     # FastAPI 处理 UploadFile 所需
+requests==2.34.2             # 豆包 / 阿里云 HTTP 调用
+httpx==0.28.1                # doubao_client_simple 备用实现
+
+# 简历 PDF 解析（/api/resume/parse-pdf）
+pdfplumber>=0.11,<0.12
+
+# 阿里云百炼：数字人语音合成 / ASR（不用语音功能可不装）
+dashscope>=1.20,<2.0
+
+# 语音与视觉功能属可选：见 requirements-speech.txt。
+# 代码已做惰性导入，缺这些包时只关闭对应功能，服务照常启动。
