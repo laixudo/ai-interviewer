@@ -26,7 +26,7 @@ _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 原先写死为 "D:\\\\AImonims\\\\models\\\\vosk-model-small-cn-0.3"：
 # 既是本机绝对路径（Linux/Docker 必挂），又多写了一层转义。
 VOSK_MODEL_PATH = os.path.normpath(
-    os.path.join(_BACKEND_DIR, os.environ.get("VOSK_MODEL_PATH", "../../models/vosk-model-small-cn-0.3"))
+    os.path.join(_BACKEND_DIR, os.environ.get("VOSK_MODEL_PATH", "../models/vosk-model-small-cn-0.3"))
     if not os.path.isabs(os.environ.get("VOSK_MODEL_PATH", ""))
     else os.environ["VOSK_MODEL_PATH"]
 )
