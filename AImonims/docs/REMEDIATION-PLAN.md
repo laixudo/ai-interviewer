@@ -186,3 +186,44 @@ V1..V7 全量回归
 
 计划书 v2 覆盖分析阶段全部 37 项发现：**33 项修复**（W0×3、S×10、B×20、C×5、T×1，含审计新增 9 项），**4 项明确排除**并说明原因（App.vue 拆分、vue-router、第三方素材去留、密钥轮换）。
 每项均有可执行的验证判据，验证环境已建成并跑通基线。可以执行。
+
+---
+
+## 9. 执行结果
+
+全部 39 项任务已执行完毕，另在执行过程中修复了 3 个计划外发现的问题。
+
+### 执行中新发现并修复
+
+| 发现 | 说明 | 处置 |
+|---|---|---|
+| 项目根本不在版本控制下 | 会话初始上下文报告「是 git 仓库」，实为被 `D:\.git` 误导 —— 该目录只有 `objects/pack`，缺 `HEAD`/`refs`/`config`。若照计划直接 `git add -A`，范围会落到驱动器根 | 在 `D:\AImonims` 正确范围 `git init` |
+| admin-frontend 存在 URL 提权分支 | `checkLoginStatus` 读 `?admin=<base64>`，解出 `role==='admin'` 即放行。构造 `btoa('{"role":"admin"}')` 放进地址栏即可进管理后台 | 整段移除 |
+| 开启外键后删除面试会失败 | `PRAGMA foreign_keys=ON` 生效后，`delete_interview` 只清了 3 张子表，`resume_evaluations`/`face_analyses`/`speech_records`/`conversation_reports` 的孤儿行会阻断删除（此前外键没开，问题被掩盖，留下孤儿数据） | 补齐 7 张子表 |
+
+### 执行中被验证挡下的错误
+
+| 环节 | 问题 | 处理 |
+|---|---|---|
+| B17 统一数据库连接 | 有 **11 个方法**（含 `add_message`、各 `update_*` 计数器）从不调用 `commit()`，靠 `isolation_level=None` 自动提交。若一律换成延迟事务，面试对话与阶段流转的写入会被静默丢弃 | `_connect(autocommit=True)` 保留原语义 |
+| B12 多行调用改写 | 偏移计算有误，把一处多行调用改重复了 | 回退后改用逐个 `ast.get_source_segment` + 精确文本替换，每步校验语法 |
+| B3 报告块替换 | 用 `s.index(...)` 做代码区间切片，误删了 `send_message`、`start_interview`、`register` 等 **8 个真实端点** | 回退后改用 AST 行范围，并加「函数清单不变」不变式，每步断言 |
+| B6 岗位标签 | 误以为 `JOB_TYPES` 是嵌套字典，实为 `{job_type: 中文名}`，运行时 `AttributeError` | 冒烟测试捕获后改正 |
+
+### 最终验证
+
+| 项目 | 结果 |
+|---|---|
+| 静态回归（V1/V5/V7 等 30 项） | **30 / 30 通过** |
+| pytest 用例 | **34 / 34 通过** |
+| `frontend` 构建 | 通过 |
+| `admin-frontend` 构建 | 通过 |
+| 后端 `import main` | 成功，93 条路由 |
+| 数据完整性 | 9 用户 / 242 面试 / 1156 消息，与修复前一致 |
+
+### 仍需你本人处理
+
+1. **轮换 4 组密钥** —— `DOUBAO_API_KEY`、`DASHSCOPE_API_KEY`、`ALIBABA_CLOUD_ACCESS_KEY_ID/SECRET` 曾长期明文落盘，需到火山引擎 / 阿里云控制台重置。代码侧已保证新密钥不再进入版本库。
+2. **清理 `D:\.git`** —— 驱动器根的残留破损仓库目录（6.4 MB），不属于本项目，会误导工具判断。
+3. **`_archive/` 的去留** —— 内含 73 个一次性脚本、4 个死代码模块、真人调试录音、根目录游离的 `package.json`。确认无用后可整个删除。
+4. **第三方素材** —— `_aigcpanel/lib.cp310-win_amd64.pyd`（939 KB Windows 二进制，无人引用）与 `package/`（4 MB Live2D 素材副本）的版权与后续用途需你判断。

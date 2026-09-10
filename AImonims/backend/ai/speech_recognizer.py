@@ -59,7 +59,7 @@ def convert_audio_to_whisper_format(audio_bytes):
 
         return samples, 16000
     except Exception as e:
-        print(f"pydub转换失败: {e}")
+        logger.error(f"pydub转换失败: {e}")
         return None, 0
 
 
@@ -71,20 +71,20 @@ class VoskRecognizer:
 
     def load_model(self):
         if not self.model_loaded:
-            print("加载 Vosk 中文模型...")
+            logger.info("加载 Vosk 中文模型...")
             try:
                 from vosk import Model, KaldiRecognizer
                 if not os.path.exists(VOSK_MODEL_PATH):
-                    print(f"Vosk 模型未找到: {VOSK_MODEL_PATH}")
+                    logger.warning(f"Vosk 模型未找到: {VOSK_MODEL_PATH}")
                     return False
 
                 self.model = Model(VOSK_MODEL_PATH)
                 self.recognizer = KaldiRecognizer(self.model, 16000)
                 self.model_loaded = True
-                print("Vosk 模型加载完成")
+                logger.info("Vosk 模型加载完成")
                 return True
             except Exception as e:
-                print(f"Vosk 模型加载失败: {e}")
+                logger.error(f"Vosk 模型加载失败: {e}")
                 return False
 
     def recognize(self, audio_bytes):
@@ -153,10 +153,10 @@ class VoskRecognizer:
                 }
 
         except Exception as e:
-            print(f"Vosk 识别失败: {e}")
+            logger.error(f"Vosk 识别失败: {e}")
             import traceback
             traceback.print_exc()
-            return {"text": "", "error": str(e)}
+            return {"text": "", "error": "语音识别失败"}
 
 
 class WhisperRecognizer:
@@ -167,15 +167,15 @@ class WhisperRecognizer:
 
     def load_model(self):
         if not self.model_loaded:
-            print("加载 Whisper 中文模型...")
+            logger.info("加载 Whisper 中文模型...")
             try:
                 import whisper
                 self.model = whisper.load_model(self.model_name, device='cpu')
                 self.model_loaded = True
-                print("Whisper 模型加载完成")
+                logger.info("Whisper 模型加载完成")
                 return True
             except Exception as e:
-                print(f"Whisper 模型加载失败: {e}")
+                logger.error(f"Whisper 模型加载失败: {e}")
                 return False
 
     def recognize(self, audio_bytes):
@@ -194,7 +194,7 @@ class WhisperRecognizer:
             if samples is None:
                 return {"text": "", "error": "音频转换失败"}
 
-            print("开始 Whisper 识别...")
+            logger.info("开始 Whisper 识别...")
             
             # 添加 initial_prompt 提示面试场景，提高识别准确率
             result = self.model.transcribe(
@@ -210,7 +210,7 @@ class WhisperRecognizer:
             
             text = result.get('text', '').strip()
             
-            print(f"Whisper 识别结果: '{text}'")
+            logger.info(f"Whisper 识别结果: '{text}'")
 
             if text:
                 return {
@@ -226,18 +226,18 @@ class WhisperRecognizer:
                 }
 
         except Exception as e:
-            print(f"Whisper 识别失败: {e}")
+            logger.error(f"Whisper 识别失败: {e}")
             import traceback
             traceback.print_exc()
-            return {"text": "", "error": str(e)}
+            return {"text": "", "error": "语音识别失败"}
 
 
 # 优先使用 Whisper，如果失败再用 Vosk
 try:
     whisper_recognizer = WhisperRecognizer()
     speech_recognizer = whisper_recognizer
-    print("已选择 Whisper 作为语音识别引擎")
+    logger.info("已选择 Whisper 作为语音识别引擎")
 except Exception as e:
-    print(f"Whisper 初始化失败，使用 Vosk: {e}")
+    logger.error(f"Whisper 初始化失败，使用 Vosk: {e}")
     vosk_recognizer = VoskRecognizer()
     speech_recognizer = vosk_recognizer

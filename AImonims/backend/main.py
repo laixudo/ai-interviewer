@@ -110,7 +110,7 @@ def answer_candidate_question(question, position, interviewer_role, target_compa
         if response:
             return response
     except Exception as e:
-        print(f"AI回答候选人问题失败: {e}")
+        logger.error(f"AI回答候选人问题失败: {e}")
 
     return "好问题！关于这方面，我可以告诉你我们团队非常注重候选人的成长和培养，会有导师一对一带教。"
 
@@ -261,7 +261,7 @@ def generate_next_tech_question(position, question_num, duration, job_type):
         if response:
             return response.strip()
     except Exception as e:
-        print(f"AI生成技术问题失败: {e}")
+        logger.error(f"AI生成技术问题失败: {e}")
 
     return get_default_tech_question(question_num + 1, position)
 
@@ -361,7 +361,7 @@ def generate_comment_and_followup_combined(user_answer, position, question_index
                     result["followup"] = response.strip()
 
     except Exception as e:
-        print(f"AI生成点评和追问失败: {e}")
+        logger.error(f"AI生成点评和追问失败: {e}")
         if should_followup:
             result["comment"] = "好的，继续追问："
             result["followup"] = "你能详细说明一下吗？"
@@ -606,7 +606,7 @@ async def start_interview(request: InterviewRequest, user_id: Optional[int] = No
                 resume_based_questions = await asyncio.to_thread(generate_resume_based_questions, resume_info, request.job_type, min(3, question_config.get("tech_questions", 4)))
                 db.update_resume_based_questions(interview_id, json_lib.dumps(resume_based_questions, ensure_ascii=False))
             except Exception as resume_error:
-                print(f"简历处理失败: {resume_error}")
+                logger.error(f"简历处理失败: {resume_error}")
 
         db.add_message(interview_id, "ai", initial_question)
         
@@ -618,7 +618,7 @@ async def start_interview(request: InterviewRequest, user_id: Optional[int] = No
             "resume_based_questions": resume_based_questions
         }
     except Exception as e:
-        print(f"开始面试失败: {e}")
+        logger.error(f"开始面试失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
@@ -780,7 +780,7 @@ async def send_message(request: MessageRequest, _user: dict = Depends(get_curren
                 try:
                     await asyncio.to_thread(evaluate_resume_quality, resume_text, job_type, request.interview_id)
                 except Exception as resume_eval_error:
-                    print(f"简历评价失败: {resume_eval_error}")
+                    logger.error(f"简历评价失败: {resume_eval_error}")
             
             evaluation_report = {
                 "status": "generating",
@@ -868,7 +868,7 @@ async def generate_questions(request: GenerateQuestionsRequest):
             "请分享一个你相关的项目经验。"
         ]}
     except Exception as e:
-        print(f"生成问题失败: {e}")
+        logger.error(f"生成问题失败: {e}")
         return {"questions": [
             f"请介绍一下你对{request.job}岗位的理解。",
             f"你为什么想申请{request.job}岗位？",
@@ -906,7 +906,7 @@ async def evaluate_interview(request: EvaluateRequest, _user: dict = Depends(get
 
         return report
     except Exception as e:
-        print(f"评估失败: {e}")
+        logger.error(f"评估失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
@@ -973,7 +973,7 @@ def generate_evaluation_with_ai(job_type, questions, answers):
             if json_match:
                 return json_match
     except Exception as e:
-        print(f"AI生成评估报告失败: {e}")
+        logger.error(f"AI生成评估报告失败: {e}")
     return None
 
 @app.post("/api/interview/improvement-plan")
@@ -1062,7 +1062,7 @@ async def generate_improvement_plan(request: ImprovementPlanRequest, _user: dict
 
         return formatted_plan
     except Exception as e:
-        print(f"生成提升计划失败: {e}")
+        logger.error(f"生成提升计划失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
@@ -1187,7 +1187,7 @@ async def websocket_avatar(websocket: WebSocket, client_id: Optional[str] = None
                                 'content': response
                             }))
                     except Exception as e:
-                        print(f"数字人AI回复失败: {e}")
+                        logger.error(f"数字人AI回复失败: {e}")
                         await websocket.send_text(json.dumps({
                             'type': 'message',
                             'content': '抱歉，系统暂时无法处理您的请求，请稍后重试。'
@@ -1207,7 +1207,7 @@ async def websocket_avatar(websocket: WebSocket, client_id: Optional[str] = None
                     }))
                     
             except json.JSONDecodeError:
-                print("收到无效的JSON数据")
+                logger.info("收到无效的JSON数据")
                 await websocket.send_text(json.dumps({
                     'type': 'error',
                     'content': '收到无效的JSON数据'
@@ -1215,7 +1215,7 @@ async def websocket_avatar(websocket: WebSocket, client_id: Optional[str] = None
     except WebSocketDisconnect:
         manager.disconnect(client_id)
     except Exception as e:
-        print(f"WebSocket错误: {e}")
+        logger.error(f"WebSocket错误: {e}")
         manager.disconnect(client_id)
 
 @app.post("/api/avatar/asr")
@@ -1262,7 +1262,7 @@ async def avatar_asr(request: Request):
                 if tts_response.status_code == 200:
                     tts_audio_url = tts_response.output.audio.url
             except Exception as tts_error:
-                print(f"TTS生成失败: {tts_error}")
+                logger.error(f"TTS生成失败: {tts_error}")
 
         text_length = len(recognized_text) if recognized_text else 0
         speech_rate_score = speech_analysis.get("speech_rate_score", 70) if speech_analysis else 70
@@ -1289,7 +1289,7 @@ async def avatar_asr(request: Request):
         }
 
     except Exception as e:
-        print(f"数字人面试流程失败: {e}")
+        logger.error(f"数字人面试流程失败: {e}")
         import traceback
         traceback.print_exc()
         _trace = log_exception("main.py", e)
@@ -1319,7 +1319,7 @@ async def avatar_tts(request: AvatarMessage):
             if not api_key:
                 return {"error": "未配置DASHSCOPE_API_KEY环境变量"}
             
-            print(f"TTS请求: voice={voice_type}, text={text[:50]}...")
+            logger.info(f"TTS请求: voice={voice_type}, text={text[:50]}...")
             
             # 调用DashScope TTS API
             response = await asyncio.to_thread(dashscope.MultiModalConversation.call, model="qwen3-tts-flash",
@@ -1332,7 +1332,7 @@ async def avatar_tts(request: AvatarMessage):
             if response.status_code == 200:
                 # 获取音频URL并下载
                 audio_url = response.output.audio.url
-                print(f"TTS音频URL: {audio_url}")
+                logger.info(f"TTS音频URL: {audio_url}")
                 
                 # 下载音频数据
                 import requests as req
@@ -1349,7 +1349,7 @@ async def avatar_tts(request: AvatarMessage):
                 return {"error": f"TTS API错误: {response.message}"}
                 
         except Exception as tts_error:
-            print(f"阿里云TTS调用失败: {tts_error}")
+            logger.error(f"阿里云TTS调用失败: {tts_error}")
             import traceback
             traceback.print_exc()
             _trace = log_exception("main.py", tts_error)
@@ -1357,7 +1357,7 @@ async def avatar_tts(request: AvatarMessage):
             return {"error": "TTS服务暂时不可用: " + _msg}
 
     except Exception as e:
-        print(f"TTS处理失败: {e}")
+        logger.error(f"TTS处理失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": _msg}
@@ -1428,12 +1428,12 @@ async def generate_avatar_video(request: AvatarVideoRequest):
             "Height": "1080"
         }
         
-        print(f"提交数字人视频任务: text={request.text[:50]}...")
+        logger.info(f"提交数字人视频任务: text={request.text[:50]}...")
         
         # 发送请求
         response = http_requests.get(url, params=params, timeout=30)
         result = response.json()
-        print(f"任务提交响应: {result}")
+        logger.info(f"任务提交响应: {result}")
         
         # 检查是否成功
         if "TaskId" not in result.get("Data", {}):
@@ -1441,7 +1441,7 @@ async def generate_avatar_video(request: AvatarVideoRequest):
             return {"error": f"提交失败: {error_msg}"}
         
         task_id = result["Data"]["TaskId"]
-        print(f"任务提交成功，TaskId: {task_id}")
+        logger.info(f"任务提交成功，TaskId: {task_id}")
         
         # 轮询查询结果
         max_wait_time = 120
@@ -1463,11 +1463,11 @@ async def generate_avatar_video(request: AvatarVideoRequest):
             
             if query_result.get("Data"):
                 status = query_result["Data"]["Status"]
-                print(f"任务状态: {status}")
+                logger.info(f"任务状态: {status}")
                 
                 if status == "SUCCESS":
                     video_url = query_result["Data"]["VideoUrl"]
-                    print(f"视频生成成功: {video_url}")
+                    logger.info(f"视频生成成功: {video_url}")
                     return {
                         "success": True,
                         "taskId": task_id,
@@ -1475,13 +1475,13 @@ async def generate_avatar_video(request: AvatarVideoRequest):
                     }
                 elif status == "FAIL":
                     error_msg = query_result["Data"].get("ErrorMessage") or "未知错误"
-                    print(f"任务失败: {error_msg}")
+                    logger.error(f"任务失败: {error_msg}")
                     return {"error": f"视频生成失败: {error_msg}"}
         
         return {"error": "视频生成超时，请稍后重试"}
         
     except Exception as e:
-        print(f"数字人视频生成失败: {e}")
+        logger.error(f"数字人视频生成失败: {e}")
         import traceback
         traceback.print_exc()
         _trace = log_exception("main.py", e)
@@ -1542,7 +1542,7 @@ async def recommend_resources(request: RecommendResourcesRequest, _user: dict = 
                     "study_advice": "暂无推荐资源"
                 }
     except Exception as e:
-        print(f"推荐学习资源失败: {e}")
+        logger.error(f"推荐学习资源失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
@@ -1577,7 +1577,7 @@ async def analyze_history(user_id: Optional[int] = None, _user: dict = Depends(g
                 "interview_count": len(interviews)
             }
     except Exception as e:
-        print(f"历史分析失败: {e}")
+        logger.error(f"历史分析失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {
@@ -1619,7 +1619,7 @@ def generate_single_question(category, question_type, difficulty="medium"):
                 return json_match
 
     except Exception as e:
-        print(f"AI生成题目失败: {e}")
+        logger.error(f"AI生成题目失败: {e}")
 
     return None
 
@@ -1668,7 +1668,7 @@ async def get_selected_questions(
 
         return {"questions": questions, "total": len(questions)}
     except Exception as e:
-        print(f"获取精选题库失败: {e}")
+        logger.error(f"获取精选题库失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"questions": [], "total": 0, "error": _msg}
@@ -1711,14 +1711,14 @@ async def generate_selected_questions_api(count_per_category: int = 2, question_
                 )
                 saved_count += 1
             except Exception as e:
-                print(f"保存题目失败: {e}")
+                logger.error(f"保存题目失败: {e}")
 
         return {
             "message": f"成功生成并保存 {saved_count} 道题目",
             "generated_count": saved_count
         }
     except Exception as e:
-        print(f"生成精选题库失败: {e}")
+        logger.error(f"生成精选题库失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "生成失败", "message": _msg}
@@ -1746,7 +1746,7 @@ async def get_question_stats():
             "categories": CATEGORIES
         }
     except Exception as e:
-        print(f"获取题库统计失败: {e}")
+        logger.error(f"获取题库统计失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": _msg}
@@ -1779,7 +1779,7 @@ async def search_questions(keyword: str, category: Optional[str] = None, questio
 
         return {"questions": questions, "total": len(questions)}
     except Exception as e:
-        print(f"搜索失败: {e}")
+        logger.error(f"搜索失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"questions": [], "total": 0, "error": _msg}
@@ -1842,20 +1842,20 @@ async def upload_speech(request: Request, _user: dict = Depends(get_current_user
                 import io as io_module
 
                 samples, sample_rate = convert_audio_to_whisper_format(audio_data)
-                print(f"音频转换结果: samples长度={len(samples) if samples is not None else 'None'}, sample_rate={sample_rate}")
+                logger.info(f"音频转换结果: samples长度={len(samples) if samples is not None else 'None'}, sample_rate={sample_rate}")
 
                 if samples is not None and len(samples) > 1600:
                     rms = np.sqrt(np.mean(np.square(samples)) + 1e-10)
                     volume_db_test = 20 * np.log10(rms)
-                    print(f"音频RMS: {rms:.6f}, 音量dB: {volume_db_test:.2f}")
+                    logger.info(f"音频RMS: {rms:.6f}, 音量dB: {volume_db_test:.2f}")
 
                     try:
-                        print(f"开始语音识别...")
+                        logger.info(f"开始语音识别...")
                         result = await asyncio.to_thread(speech_recognizer.recognize, audio_data)
                         recognized_text = result.get("text", "").strip()
-                        print(f"识别结果: '{recognized_text}'")
+                        logger.info(f"识别结果: '{recognized_text}'")
                     except Exception as e:
-                        print(f"Whisper识别失败: {e}")
+                        logger.error(f"Whisper识别失败: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -1887,7 +1887,7 @@ async def upload_speech(request: Request, _user: dict = Depends(get_current_user
                         else:
                             confidence = min(100, 25 + (40 if 120 < speed_wpm < 180 else (25 if 100 < speed_wpm < 200 else 20)) + 20)
             except Exception as asr_error:
-                print(f"本地语音识别失败: {asr_error}")
+                logger.error(f"本地语音识别失败: {asr_error}")
 
         if not recognized_text:
             recognized_text = "语音回答"
@@ -1936,7 +1936,7 @@ async def upload_speech(request: Request, _user: dict = Depends(get_current_user
             }
         }
     except Exception as e:
-        print(f"语音上传失败: {e}")
+        logger.error(f"语音上传失败: {e}")
         import traceback
         traceback.print_exc()
         _trace = log_exception("main.py", e)
@@ -1961,7 +1961,7 @@ async def get_speech_record(record_id: int, _user: dict = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
-        print(f"获取语音记录失败: {e}")
+        logger.error(f"获取语音记录失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取失败: " + _msg}
@@ -1977,7 +1977,7 @@ async def get_speech_records(interview_id: int, _user: dict = Depends(get_curren
                 record['audio_data'] = None  # 不返回音频数据，只返回元数据
         return {"records": records}
     except Exception as e:
-        print(f"获取语音记录失败: {e}")
+        logger.error(f"获取语音记录失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取失败: " + _msg}
@@ -1999,7 +1999,7 @@ async def get_speech_summary(interview_id: int, _user: dict = Depends(get_curren
                 "message": "暂无语音分析数据"
             }
     except Exception as e:
-        print(f"获取语音分析汇总失败: {e}")
+        logger.error(f"获取语音分析汇总失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取失败: " + _msg}
@@ -2086,7 +2086,7 @@ def extract_resume_info(resume_text, job_type):
                 return json_match
 
     except Exception as e:
-        print(f"简历信息提取失败: {e}")
+        logger.error(f"简历信息提取失败: {e}")
 
     return {
         "personal_info": {"name": "", "phone": "", "email": "", "location": ""},
@@ -2154,7 +2154,7 @@ def evaluate_resume_quality(resume_text, job_type, interview_id):
                 return evaluation
 
     except Exception as e:
-        print(f"简历评价失败: {e}")
+        logger.error(f"简历评价失败: {e}")
 
     return {
         "overall_score": 60,
@@ -2208,7 +2208,7 @@ def generate_resume_based_questions(resume_info, job_type, question_count=3):
                 return result.get('questions', [])
 
     except Exception as e:
-        print(f"生成简历相关问题失败: {e}")
+        logger.error(f"生成简历相关问题失败: {e}")
 
     return [
         "请详细介绍一下你的一个核心项目经验？",
@@ -2224,7 +2224,7 @@ async def extract_resume(request: ResumeExtractRequest):
         resume_info = await asyncio.to_thread(extract_resume_info, request.resume_text, request.job_type)
         return {"status": "success", "resume_info": resume_info}
     except Exception as e:
-        print(f"简历提取API失败: {e}")
+        logger.error(f"简历提取API失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"status": "error", "message": _msg}
@@ -2248,7 +2248,7 @@ async def evaluate_resume(request: ResumeEvaluationRequest, _user: dict = Depend
     except HTTPException:
         raise
     except Exception as e:
-        print(f"简历评价API失败: {e}")
+        logger.error(f"简历评价API失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"status": "error", "message": _msg}
@@ -2274,7 +2274,7 @@ async def get_resume_evaluation(interview_id: int, _user: dict = Depends(get_cur
         else:
             return {"status": "not_found", "message": "简历评价不存在"}
     except Exception as e:
-        print(f"获取简历评价API失败: {e}")
+        logger.error(f"获取简历评价API失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"status": "error", "message": _msg}
@@ -2288,7 +2288,7 @@ async def generate_questions_from_resume(request: ResumeExtractRequest):
         questions = await asyncio.to_thread(generate_resume_based_questions, resume_info, request.job_type, 3)
         return {"status": "success", "questions": questions, "resume_info": resume_info}
     except Exception as e:
-        print(f"生成简历问题API失败: {e}")
+        logger.error(f"生成简历问题API失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"status": "error", "message": _msg}
@@ -2381,7 +2381,7 @@ async def analyze_face(request: FaceAnalysisRequest):
             try:
                 image_data = base64.b64decode(request.image)
             except Exception as decode_error:
-                print(f"图片解码失败: {decode_error}")
+                logger.error(f"图片解码失败: {decode_error}")
 
         if image_data:
             # 使用临时文件
@@ -2420,7 +2420,7 @@ async def analyze_face(request: FaceAnalysisRequest):
         }
 
     except Exception as e:
-        print(f"面部分析失败: {e}")
+        logger.error(f"面部分析失败: {e}")
         import traceback
         traceback.print_exc()
         return {
@@ -2461,7 +2461,7 @@ async def save_face_analysis(request: Request, _user: dict = Depends(get_current
             "analysis_id": analysis_id
         }
     except Exception as e:
-        print(f"保存面部分析失败: {e}")
+        logger.error(f"保存面部分析失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "保存失败: " + _msg}
@@ -2481,7 +2481,7 @@ async def get_face_analysis(interview_id: int, _user: dict = Depends(get_current
             "summary": summary
         }
     except Exception as e:
-        print(f"获取面部分析失败: {e}")
+        logger.error(f"获取面部分析失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取失败: " + _msg}
@@ -2504,7 +2504,7 @@ async def get_face_analysis_summary_api(interview_id: int, _user: dict = Depends
                 "message": "暂无面部分析数据"
             }
     except Exception as e:
-        print(f"获取面部分析汇总失败: {e}")
+        logger.error(f"获取面部分析汇总失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取失败: " + _msg}
@@ -2621,7 +2621,7 @@ async def generate_comprehensive_report(request: ComprehensiveReportRequest, _us
         return comprehensive_report
 
     except Exception as e:
-        print(f"生成综合报告失败: {e}")
+        logger.error(f"生成综合报告失败: {e}")
         import traceback
         traceback.print_exc()
         _trace = log_exception("main.py", e)
@@ -2700,7 +2700,7 @@ async def get_full_evaluation(interview_id: int, _user: dict = Depends(get_curre
             "face_summary": face_summary
         }
     except Exception as e:
-        print(f"获取完整评估失败: {e}")
+        logger.error(f"获取完整评估失败: {e}")
         _trace = log_exception("main.py", e)
         _msg = "服务器内部错误 (trace_id=%s)" % _trace
         return {"error": "获取完整评估失败: " + _msg}

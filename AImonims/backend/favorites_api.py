@@ -3,6 +3,10 @@ from errors import log_exception
 import json
 from datetime import datetime
 
+import logging
+
+logger = logging.getLogger("interview.favorites_api")
+
 def register_favorites_routes(app, get_db):
     """注册收藏相关路由"""
 
@@ -167,4 +171,4 @@ def register_favorites_routes(app, get_db):
         finally:
             conn.close()
 
-    print("收藏路由注册完成！")
+    logger.info("收藏路由注册完成！")

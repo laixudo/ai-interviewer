@@ -1,176 +1,159 @@
-# AI模拟面试与能力提升软件
+# AI 模拟面试与能力提升平台
 
-基于豆包Doubao-Seed-2.0-pro大模型的AI模拟面试与能力提升平台。
+基于豆包 Doubao-Seed-2.0-pro 的 AI 模拟面试系统。用户端负责面试与复盘，管理端负责用户、面试记录与题库的运营。
 
-## 功能特性
+- 后端：FastAPI + SQLite，89 个接口
+- 用户端：Vue 3 + Element Plus + Vite，16 个页面组件（端口 3000）
+- 管理端：独立 Vue 3 应用，5 个页面组件（端口 8080）
 
-### 1. 岗位化题库与知识库构建
-- 支持Java后端、Web前端、Python算法三种计算机专业岗位
-- 包含技术知识、项目经历深挖、场景题、行为题等多种题型
-- 建立了完善的岗位核心技术栈知识库
-- 支持RAG（检索增强生成）
+## 功能
 
-### 2. 多模态交互式模拟面试界面
-- 支持语音和文字两种输入方式
-- AI面试官具备多轮对话能力
-- 智能追问，根据关键词深入挖掘
-- 专业的面试节奏控制
+### 面试主流程
+- **面试配置**：岗位（Java 后端 / Web 前端 / Python 算法）、经验阶段、面试官角色、压力等级、时长（5/10/20/30 分钟）
+- **分阶段面试**：自我介绍 → 技术提问 → 反问环节，各阶段题目数量按时长自动分配
+- **智能追问**：根据回答内容决定是否追问，每题追问次数有上限
+- **多模态输入**：文字输入，或语音作答（Whisper / Vosk 本地识别）
+- **数字人面试官**：Live2D 形象 + 语音合成（阿里云百炼 CosyVoice）
 
-### 3. 面试表现多维度分析模块
-- **内容分析**：技术正确性、知识深度、逻辑严谨性、岗位匹配度
-- **表达分析**：语速、清晰度、自信度评估
-- **综合报告**：结构化评估报告，包含得分、亮点、不足和改进建议
+### 复盘与提升
+- **评估报告**：技术正确性、知识深度、逻辑严谨性、岗位匹配度
+- **能力提升计划**：短板分析、改进建议、学习资源、30 天计划
+- **个人能力画像**：雷达图 + 成长趋势曲线（ECharts）
+- **简历分析**：PDF 解析、信息提取、质量评分，并据此生成针对性面试题
+- **面部表情分析**：面试过程中的情绪、专注度、自信度评估
 
-### 4. 能力提升反馈
-- 个性化提升建议和练习计划
-- 面试历史记录
-- 能力成长曲线可视化
+### 辅助模块
+- **题库**：选择题与问答题，支持分类检索与收藏
+- **备战中心**：面试技巧、简历管理、投递记录
+- **社区**：经验帖、评论、点赞
 
-## 技术栈
+### 管理端（:8080）
+用户管理、面试记录管理、笔试题管理、精选题管理、数据看板。全部接口需要管理员令牌。
 
-- **后端**：FastAPI + Python
-- **前端**：Vue 3 + Element Plus + Vite
-- **大模型**：豆包Doubao-Seed-2.0-pro
-- **数据库**：SQLite
-- **部署**：Docker + Docker Compose
+> 说明：仓库中的 `data/knowledge_base.py`（Chroma 向量库）曾用于 RAG 实验，但从未被后端引用，已在清理中移除。当前岗位知识库是 `backend/data/job_knowledge_base.py` 里的静态字典，**不是 RAG**。
 
 ## 快速开始
 
 ### 前置要求
-
 - Python 3.10+
 - Node.js 16+
-- Docker (可选，用于容器化部署)
-- 豆包API_KEY
+- 豆包 API Key（[火山方舟](https://www.volcengine.com/product/ark)）
 
-### 1. 配置环境
-
-```bash
-# 复制并编辑环境变量配置
-cp .env.example .env
-# 编辑 .env 文件，填入你的豆包API_KEY
-```
-
-.env文件内容：
-```
-DOUBAO_API_KEY=your_doubao_api_key_here
-DOUBAO_MODEL=Doubao-Seed-2.0-pro
-DOUBAO_API_BASE=https://ark.cn-beijing.volces.com/api/v3
-```
-
-### 2. 后端启动
+### 1. 配置
 
 ```bash
-cd backend
-pip install -r requirements.txt
-python main.py
+cp backend/.env.example backend/.env
 ```
 
-后端服务将在 http://localhost:8000 启动
+编辑 `backend/.env`，至少填两项：
 
-### 3. 前端启动
+| 变量 | 说明 |
+|---|---|
+| `DOUBAO_API_KEY` | 豆包 API 密钥 |
+| `APP_SECRET_KEY` | 会话令牌签名密钥，**必填**，缺失或短于 32 字符则服务启动即报错 |
+
+生成签名密钥：
 
 ```bash
-cd frontend
-npm install
-npm run dev
+python -c "import secrets;print(secrets.token_hex(32))"
 ```
 
-前端服务将在 http://localhost:3000 启动
+其余变量（阿里云语音、CORS 来源、数据库路径、Vosk 模型路径）见 `.env.example` 内注释。
 
-### 4. Docker部署 (可选)
+### 2. 后端
 
 ```bash
-docker-compose up -d
+cd backend && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt && .venv/Scripts/python main.py
 ```
+
+服务启动在 http://localhost:8000 ，接口文档 http://localhost:8000/docs 。
+
+语音识别与面部分析属可选功能，需要额外安装（体积较大，含 torch）：
+
+```bash
+pip install -r requirements-speech.txt
+```
+
+不装也能正常启动，只是语音相关接口会返回明确的「组件未安装」提示。
+
+### 3. 用户端
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+http://localhost:3000
+
+### 4. 管理端
+
+```bash
+cd admin-frontend && npm install && npm run dev
+```
+
+http://localhost:8080 。需要用 `role = admin` 的账号登录；角色只能直接改数据库 `users.role` 字段授予，注册接口不接受角色参数。
+
+### 5. Docker（可选）
+
+```bash
+docker compose up -d
+```
+
+`.env` 中的 `DOUBAO_API_KEY` 与 `APP_SECRET_KEY` 会透传进容器，数据库存在名为 `backend_data` 的具名卷里。
+
+## 测试
+
+```bash
+cd backend && .venv/Scripts/python -m pytest
+```
+
+34 条用例，覆盖密码哈希、令牌鉴权、管理端权限、越权访问、错误响应不外泄，以及模型回复的 JSON 解析。测试跑在临时库副本上，不会碰 `backend/interview.db`。
 
 ## 项目结构
 
 ```
 AImonims/
-├── backend/              # 后端服务
-│   ├── main.py          # 主入口文件
-│   ├── requirements.txt # Python依赖
-│   ├── ai/              # AI模块
-│   ├── data/            # 数据模块
-│   └── interview.db     # SQLite数据库
-├── frontend/            # 前端应用
-│   ├── src/
-│   │   ├── App.vue      # 主组件
-│   │   └── main.js      # 入口文件
-│   ├── package.json
-│   └── vite.config.js
-├── ai/                  # AI模块（共享）
-│   ├── doubao_client.py # 豆包API客户端
-│   ├── evaluator.py     # 评估模块
-│   └── improver.py      # 提升建议模块
-├── data/                # 数据模块（共享）
-│   ├── database.py      # 数据库操作
-│   └── job_knowledge_base.py # 岗位知识库
-├── docker/              # Docker相关
-├── docker-compose.yml   # Docker Compose配置
-└── .env                 # 环境变量配置
+├── backend/
+│   ├── main.py                  # 主入口，面试主流程与大部分接口
+│   ├── auth.py                  # 令牌签发/校验、权限依赖、归属校验
+│   ├── errors.py                # 统一异常处理（对外只给 trace_id）
+│   ├── llm_utils.py             # 模型回复的 JSON 解析
+│   ├── admin_api.py             # 管理端接口（全部要求管理员）
+│   ├── prep_center_api.py       # 备战中心、简历、社区
+│   ├── favorites_api.py         # 收藏
+│   ├── ai/                      # 豆包客户端、评估、语音识别、语速分析
+│   ├── data/                    # 数据库访问与岗位知识库
+│   ├── tests/                   # pytest 用例
+│   ├── requirements.txt         # 核心依赖
+│   └── requirements-speech.txt  # 可选的语音/视觉依赖
+├── frontend/                    # 用户端（:3000）
+│   ├── src/http.js              # fetch 拦截器，自动附带令牌
+│   ├── src/App.vue              # 主壳与页面切换
+│   └── src/components/          # 16 个页面组件
+├── admin-frontend/              # 管理端（:8080）
+├── docker/                      # 后端镜像
+├── docs/
+│   ├── REMEDIATION-PLAN.md      # 安全与 Bug 修复计划书（含审计记录）
+│   └── backup/                  # 数据库备份（不入库）
+├── models/                      # Vosk 中文模型（需自行下载，不入库）
+└── package/                     # Live2D 模型素材
 ```
 
-## API文档
+## 安全说明
 
-启动后端服务后，访问 http://localhost:8000/docs 查看完整的API文档。
+- 密码用 PBKDF2-HMAC-SHA256（26 万次迭代）加盐存储，不保留明文
+- 登录下发 HMAC 签名令牌（含有效期），前端由 `http.js` 自动附加到 `/api/` 请求
+- 管理端接口一律要求管理员令牌；面试类接口校验资源归属
+- 异常只回传 `trace_id`，真实堆栈进日志
+- `.env` 与 `*.db` 已在 `.gitignore` 中排除
 
-## 使用说明
+**若你从旧版本升级**：旧版 `.env` 中的密钥曾以明文长期存在于工作区，且数据库中存有明文密码。请到火山引擎/阿里云控制台轮换 `DOUBAO_API_KEY`、`DASHSCOPE_API_KEY`、`ALIBABA_CLOUD_ACCESS_KEY_ID/SECRET`。首次启动新版后端时，数据库里的明文密码会自动迁移为哈希，用户的原密码仍然可用。
 
-### 1. 用户注册/登录
-- 访问首页，点击"我的"进行注册或登录
+## 已知限制
 
-### 2. 开始面试
-- 点击"模拟面试"
-- 选择面试岗位（Java后端、Web前端、Python算法）
-- 选择工作经验阶段
-- 选择面试官角色
-- 点击"开始面试"
-
-### 3. 面试过程
-- AI面试官会提问
-- 通过文字或语音输入回答
-- AI会根据回答进行追问
-- 完成面试后查看评估报告
-
-### 4. 查看报告
-- 综合得分和等级
-- 各维度详细评估
-- 亮点分析
-- 改进建议
-- 能力提升计划
-
-## 岗位类型
-
-### 1. Java后端开发工程师
-- 核心技术栈：Java SE、Spring Boot、Spring Cloud、MySQL、Redis、微服务架构
-- 重点考察：多线程、JVM、Spring框架、数据库优化
-
-### 2. Web前端开发工程师
-- 核心技术栈：HTML5、CSS3、JavaScript、React/Vue、TypeScript、Webpack
-- 重点考察：前端框架、性能优化、响应式设计、前端安全
-
-### 3. Python算法工程师
-- 核心技术栈：Python基础、NumPy/Pandas、Scikit-learn、TensorFlow/PyTorch
-- 重点考察：算法设计、数据结构、机器学习、深度学习
-
-## 开发说明
-
-### 添加新岗位
-1. 在 `data/job_knowledge_base.py` 中添加岗位定义
-2. 添加该岗位的题库
-3. 添加核心技术栈
-4. 在前端添加岗位选项
-
-### 自定义评估标准
-1. 修改 `ai/evaluator.py` 中的评估逻辑
-2. 或通过豆包API的提示词进行调整
+- `frontend/src/App.vue` 仍是 5800 余行的单文件，其中约 3900 行是未加 `scoped` 的全局样式
+- 页面切换用组件内 `currentPage` 字符串，没有引入 vue-router，因此不支持浏览器前进/后退、刷新保持与深链接
+- 上述两项与面试业务逻辑本身的产品语义，均不在本轮修复范围内，见 `docs/REMEDIATION-PLAN.md` 第 3 节
 
 ## 许可证
 
 MIT License
-
-## 联系方式
-
-如有问题或建议，欢迎提交Issue或Pull Request。

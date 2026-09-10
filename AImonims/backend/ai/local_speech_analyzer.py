@@ -5,6 +5,10 @@ import librosa
 import imageio_ffmpeg
 from pydub import AudioSegment
 
+import logging
+
+logger = logging.getLogger("interview.local_speech_analyzer")
+
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
 
@@ -144,7 +148,7 @@ class LightSpeechAnalyzer:
                 "message": "语音分析完成（无识别）"
             }
         except Exception as e:
-            print(f"音频分析失败: {e}")
+            logger.error(f"音频分析失败: {e}")
             import traceback
             traceback.print_exc()
             return {
@@ -156,7 +160,7 @@ class LightSpeechAnalyzer:
                 "word_count": 0,
                 "duration": duration or 0,
                 "text": "",
-                "message": f"分析失败: {str(e)}"
+                "message": "语音分析失败"
             }
 
     def _detect_speech_segments(self, samples: np.ndarray, threshold: float = 0.02) -> list:

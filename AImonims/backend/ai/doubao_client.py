@@ -4,6 +4,10 @@ import requests
 import json
 from dotenv import load_dotenv
 
+import logging
+
+logger = logging.getLogger("interview.doubao_client")
+
 # 显式指定 .env 路径：原先裸 load_dotenv() 按 cwd 向上找，换目录启动就读不到。
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
@@ -77,7 +81,7 @@ class DoubaoClient:
 
         cached_content = self._check_cache(cache_key)
         if cached_content:
-            print("✅ 使用缓存结果")
+            logger.info("✅ 使用缓存结果")
             return cached_content
 
         try:
@@ -89,7 +93,7 @@ class DoubaoClient:
             self._update_cache(cache_key, content)
             return content
         except Exception as e:
-            print(f"豆包API调用失败: {e}")
+            logger.error(f"豆包API调用失败: {e}")
             return None
 
     def generate_followup_question_with_context(self, system_prompt, conversation_history):
@@ -105,7 +109,7 @@ class DoubaoClient:
         try:
             return self._make_request(history_messages, temperature=0.7, max_tokens=500, timeout=60)
         except Exception as e:
-            print(f"豆包API调用失败: {e}")
+            logger.error(f"豆包API调用失败: {e}")
             return None
 
     def analyze_answer_quality(self, job_type, question, answer):
@@ -165,7 +169,7 @@ class DoubaoClient:
         try:
             return self._make_request(history_messages, temperature=0.7, max_tokens=500, timeout=60)
         except Exception as e:
-            print(f"豆包API调用失败: {e}")
+            logger.error(f"豆包API调用失败: {e}")
             return None
 
     def generate_response_simple(self, prompt, max_tokens=200):
@@ -173,7 +177,7 @@ class DoubaoClient:
         try:
             return self._make_request(messages, temperature=0.7, max_tokens=max_tokens, timeout=60)
         except Exception as e:
-            print(f"API调用失败: {e}")
+            logger.error(f"API调用失败: {e}")
             return None
 
     def analyze_speech(self, text):
@@ -324,7 +328,7 @@ class DoubaoClient:
                 "suggestion": suggestion
             }
         except Exception as e:
-            print(f"面部分析失败: {e}")
+            logger.error(f"面部分析失败: {e}")
             import traceback
             traceback.print_exc()
             return None

@@ -3,6 +3,10 @@ from errors import log_exception
 import json
 from datetime import datetime
 
+import logging
+
+logger = logging.getLogger("interview.prep_center_api")
+
 def register_prep_center_routes(app, get_db):
     """注册面试准备中心相关路由"""
 
@@ -799,4 +803,4 @@ def register_prep_center_routes(app, get_db):
         finally:
             conn.close()
 
-    print("面试准备中心路由注册完成！")
+    logger.info("面试准备中心路由注册完成！")

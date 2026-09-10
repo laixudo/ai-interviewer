@@ -6,6 +6,10 @@ import hashlib
 import hmac
 import secrets
 
+import logging
+
+logger = logging.getLogger("interview.database")
+
 # 数据库默认位置基于本文件解析，不再依赖进程 cwd。
 # 历史上因为用相对路径 "interview.db"，换目录启动就会静默新建空库，
 # 工作区里因此留下了 4 个 interview.db（其中 3 个是空的）。
@@ -335,7 +339,7 @@ class Database:
         )
 
         if pending:
-            print(f"[迁移] 已将 {len(pending)} 个账号的明文密码转为 PBKDF2 哈希")
+            logger.info(f"[迁移] 已将 {len(pending)} 个账号的明文密码转为 PBKDF2 哈希")
 
     def add_user(self, username, password, email, phone=None, avatar=None, role="user"):
         """添加用户（密码以 PBKDF2 哈希存储，明文列留空）"""
@@ -739,7 +743,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"删除面试记录失败: {e}")
+            logger.error(f"删除面试记录失败: {e}")
             conn.rollback()
             return False
         finally:
@@ -870,7 +874,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"删除精选题目失败: {e}")
+            logger.error(f"删除精选题目失败: {e}")
             return False
         finally:
             conn.close()

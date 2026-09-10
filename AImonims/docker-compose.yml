@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -11,11 +9,15 @@ services:
       - DOUBAO_API_KEY=${DOUBAO_API_KEY}
       - DOUBAO_MODEL=${DOUBAO_MODEL}
       - DOUBAO_API_BASE=${DOUBAO_API_BASE}
+      - APP_SECRET_KEY=${APP_SECRET_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      - INTERVIEW_DB_PATH=/app/data-store/interview.db
     volumes:
-      - ./backend:/app
-      - ./ai:/app/ai
-      - ./data:/app/data
-      - ./chroma_db:/app/chroma_db
+      # 只挂载需要持久化的数据目录。
+      # 原先挂了 ./backend:/app、./ai:/app/ai、./data:/app/data，
+      # 后两个会用根目录的旧副本（Database 只有 19 个方法）覆盖镜像里的
+      # 正确实现（46 个方法），容器一跑就 AttributeError。
+      - backend_data:/app/data-store
     restart: unless-stopped
 
   frontend:
@@ -27,3 +29,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  backend_data:
