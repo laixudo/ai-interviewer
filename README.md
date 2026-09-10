@@ -30,7 +30,7 @@
 ### 管理端（:8080）
 用户管理、面试记录管理、笔试题管理、精选题管理、数据看板。全部接口需要管理员令牌。
 
-> 说明：仓库中的 `data/knowledge_base.py`（Chroma 向量库）曾用于 RAG 实验，但从未被后端引用，已在清理中移除。当前岗位知识库是 `backend/data/job_knowledge_base.py` 里的静态字典，**不是 RAG**。
+> 说明：仓库中的 `data/knowledge_base.py`（Chroma 向量库）曾用于 RAG 实验，但从未被后端引用，已在清理中移除。当前岗位知识库是 `AImonims/backend/data/job_knowledge_base.py` 里的静态字典，**不是 RAG**。
 
 ## 快速开始
 
@@ -42,10 +42,10 @@
 ### 1. 配置
 
 ```bash
-cp backend/.env.example backend/.env
+cp AImonims/backend/.env.example AImonims/backend/.env
 ```
 
-编辑 `backend/.env`，至少填两项：
+编辑 `AImonims/backend/.env`，至少填两项：
 
 | 变量 | 说明 |
 |---|---|
@@ -63,7 +63,7 @@ python -c "import secrets;print(secrets.token_hex(32))"
 ### 2. 后端
 
 ```bash
-cd backend && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt && .venv/Scripts/python main.py
+cd AImonims/backend && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt && .venv/Scripts/python main.py
 ```
 
 服务启动在 http://localhost:8000 ，接口文档 http://localhost:8000/docs 。
@@ -79,7 +79,7 @@ pip install -r requirements-speech.txt
 ### 3. 用户端
 
 ```bash
-cd frontend && npm install && npm run dev
+cd AImonims/frontend && npm install && npm run dev
 ```
 
 http://localhost:3000
@@ -87,7 +87,7 @@ http://localhost:3000
 ### 4. 管理端
 
 ```bash
-cd admin-frontend && npm install && npm run dev
+cd AImonims/admin-frontend && npm install && npm run dev
 ```
 
 http://localhost:8080 。需要用 `role = admin` 的账号登录；角色只能直接改数据库 `users.role` 字段授予，注册接口不接受角色参数。
@@ -103,39 +103,47 @@ docker compose up -d
 ## 测试
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest
+cd AImonims/backend && .venv/Scripts/python -m pytest
 ```
 
-34 条用例，覆盖密码哈希、令牌鉴权、管理端权限、越权访问、错误响应不外泄，以及模型回复的 JSON 解析。测试跑在临时库副本上，不会碰 `backend/interview.db`。
+34 条用例，覆盖密码哈希、令牌鉴权、管理端权限、越权访问、错误响应不外泄，以及模型回复的 JSON 解析。测试跑在临时库副本上，不会碰 `AImonims/backend/interview.db`。
 
 ## 项目结构
 
+项目代码位于仓库的 `AImonims/` 子目录下（沿用了原始的本地目录布局），仓库根只有本文件与 `.gitignore`。
+
 ```
-AImonims/
-├── backend/
-│   ├── main.py                  # 主入口，面试主流程与大部分接口
-│   ├── auth.py                  # 令牌签发/校验、权限依赖、归属校验
-│   ├── errors.py                # 统一异常处理（对外只给 trace_id）
-│   ├── llm_utils.py             # 模型回复的 JSON 解析
-│   ├── admin_api.py             # 管理端接口（全部要求管理员）
-│   ├── prep_center_api.py       # 备战中心、简历、社区
-│   ├── favorites_api.py         # 收藏
-│   ├── ai/                      # 豆包客户端、评估、语音识别、语速分析
-│   ├── data/                    # 数据库访问与岗位知识库
-│   ├── tests/                   # pytest 用例
-│   ├── requirements.txt         # 核心依赖
-│   └── requirements-speech.txt  # 可选的语音/视觉依赖
-├── frontend/                    # 用户端（:3000）
-│   ├── src/http.js              # fetch 拦截器，自动附带令牌
-│   ├── src/App.vue              # 主壳与页面切换
-│   └── src/components/          # 16 个页面组件
-├── admin-frontend/              # 管理端（:8080）
-├── docker/                      # 后端镜像
-├── docs/
-│   ├── REMEDIATION-PLAN.md      # 安全与 Bug 修复计划书（含审计记录）
-│   └── backup/                  # 数据库备份（不入库）
-├── models/                      # Vosk 中文模型（需自行下载，不入库）
-└── package/                     # Live2D 模型素材
+ai-interviewer/
+├── README.md                        # 本文件
+├── .gitignore
+├── models/                          # Vosk 中文模型，需自行下载（不入库，约 49 MB）
+└── AImonims/
+    ├── backend/
+    │   ├── main.py                  # 主入口，面试主流程与大部分接口
+    │   ├── auth.py                  # 令牌签发/校验、权限依赖、归属校验
+    │   ├── errors.py                # 统一异常处理（对外只给 trace_id）
+    │   ├── llm_utils.py             # 模型回复的 JSON 解析
+    │   ├── admin_api.py             # 管理端接口（全部要求管理员）
+    │   ├── prep_center_api.py       # 备战中心、简历、社区
+    │   ├── favorites_api.py         # 收藏
+    │   ├── ai/                      # 豆包客户端、评估、语音识别、语速分析
+    │   ├── data/                    # 数据库访问与岗位知识库
+    │   ├── tests/                   # 34 条 pytest 用例
+    │   ├── requirements.txt         # 核心依赖
+    │   ├── requirements-speech.txt  # 可选的语音/视觉依赖
+    │   └── .env.example             # 配置模板（.env 本身不入库）
+    ├── frontend/                    # 用户端（:3000）
+    │   ├── src/http.js              # fetch 拦截器，自动附带令牌
+    │   ├── src/App.vue              # 主壳与页面切换
+    │   └── src/components/          # 16 个页面组件
+    ├── admin-frontend/              # 管理端（:8080）
+    ├── docker/                      # 后端镜像
+    ├── docker-compose.yml
+    ├── docs/
+    │   ├── REMEDIATION-PLAN.md      # 安全与 Bug 修复计划书（含 5 轮审计记录）
+    │   └── backup/                  # 数据库备份（不入库）
+    ├── package/                     # Live2D 模型素材
+    └── _aigcpanel/                  # 第三方组件（当前未被引用）
 ```
 
 ## 安全说明
@@ -144,15 +152,15 @@ AImonims/
 - 登录下发 HMAC 签名令牌（含有效期），前端由 `http.js` 自动附加到 `/api/` 请求
 - 管理端接口一律要求管理员令牌；面试类接口校验资源归属
 - 异常只回传 `trace_id`，真实堆栈进日志
-- `.env` 与 `*.db` 已在 `.gitignore` 中排除
+- `.env` 与 `*.db` 已在仓库根的 `.gitignore` 中排除
 
 **若你从旧版本升级**：旧版 `.env` 中的密钥曾以明文长期存在于工作区，且数据库中存有明文密码。请到火山引擎/阿里云控制台轮换 `DOUBAO_API_KEY`、`DASHSCOPE_API_KEY`、`ALIBABA_CLOUD_ACCESS_KEY_ID/SECRET`。首次启动新版后端时，数据库里的明文密码会自动迁移为哈希，用户的原密码仍然可用。
 
 ## 已知限制
 
-- `frontend/src/App.vue` 仍是 5800 余行的单文件，其中约 3900 行是未加 `scoped` 的全局样式
+- `AImonims/frontend/src/App.vue` 仍是 5800 余行的单文件，其中约 3900 行是未加 `scoped` 的全局样式
 - 页面切换用组件内 `currentPage` 字符串，没有引入 vue-router，因此不支持浏览器前进/后退、刷新保持与深链接
-- 上述两项与面试业务逻辑本身的产品语义，均不在本轮修复范围内，见 `docs/REMEDIATION-PLAN.md` 第 3 节
+- 上述两项与面试业务逻辑本身的产品语义，均不在本轮修复范围内，见 [docs/REMEDIATION-PLAN.md](AImonims/docs/REMEDIATION-PLAN.md) 第 3 节
 
 ## 许可证
 
