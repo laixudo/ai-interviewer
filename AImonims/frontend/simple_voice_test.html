@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单语音测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        h2 {
+            color: #333;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .log {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>简单语音测试</h1>
+    
+    <div class="test-section">
+        <h2>测试 1: 最简单的语音播放</h2>
+        <button onclick="testSimpleVoice()">播放测试语音</button>
+        <p>使用最简单的方式播放语音</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 2: 延迟播放</h2>
+        <button onclick="testDelayedVoice()">延迟播放测试</button>
+        <p>添加延迟避免冲突</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 3: 直接使用语音对象</h2>
+        <button onclick="testDirectVoice()">直接播放</button>
+        <p>直接创建并播放语音对象</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 4: 不同文本</h2>
+        <input type="text" id="testText" value="你好，这是一个测试" style="width: 200px; padding: 5px;">
+        <button onclick="testCustomText()">播放</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 5: 语音状态检查</h2>
+        <button onclick="checkVoiceStatus()">检查状态</button>
+        <div id="statusLog" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 6: 重置语音引擎</h2>
+        <button onclick="resetSpeechSynthesis()">重置语音引擎</button>
+        <p>尝试重置语音合成引擎</p>
+    </div>
+    
+    <script>
+        function log(message) {
+            console.log(message);
+        }
+        
+        // 测试 1: 最简单的语音播放
+        function testSimpleVoice() {
+            log("测试最简单的语音播放...");
+            try {
+                // 取消所有之前的语音
+                window.speechSynthesis.cancel();
+                
+                // 创建语音对象
+                const utterance = new SpeechSynthesisUtterance("你好，这是一个简单的语音测试");
+                utterance.lang = "zh-CN";
+                utterance.volume = 1;
+                
+                // 直接播放
+                log("开始播放...");
+                window.speechSynthesis.speak(utterance);
+                log("播放命令已发送");
+            } catch (error) {
+                log("错误:", error);
+            }
+        }
+        
+        // 测试 2: 延迟播放
+        function testDelayedVoice() {
+            log("测试延迟播放...");
+            
+            // 先取消所有语音
+            window.speechSynthesis.cancel();
+            
+            // 延迟一段时间再播放
+            setTimeout(function() {
+                try {
+                    const utterance = new SpeechSynthesisUtterance("你好，这是延迟播放的测试");
+                    utterance.lang = "zh-CN";
+                    utterance.volume = 1;
+                    
+                    log("延迟后开始播放...");
+                    window.speechSynthesis.speak(utterance);
+                } catch (error) {
+                    log("错误:", error);
+                }
+            }, 500);
+        }
+        
+        // 测试 3: 直接使用语音对象
+        function testDirectVoice() {
+            log("测试直接使用语音对象...");
+            
+            // 取消所有之前的语音
+            window.speechSynthesis.cancel();
+            
+            // 直接创建并播放
+            const text = "你好，这是直接播放的测试";
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = "zh-CN";
+            utterance.volume = 1;
+            
+            log("创建语音对象: " + text);
+            window.speechSynthesis.speak(utterance);
+            log("播放命令已发送");
+        }
+        
+        // 测试 4: 不同文本
+        function testCustomText() {
+            const text = document.getElementById("testText").value;
+            log("测试自定义文本: " + text);
+            
+            // 取消所有之前的语音
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = "zh-CN";
+            utterance.volume = 1;
+            
+            window.speechSynthesis.speak(utterance);
+        }
+        
+        // 测试 5: 语音状态检查
+        function checkVoiceStatus() {
+            log("检查语音状态...");
+            const statusLog = document.getElementById("statusLog");
+            
+            const status = {
+                pending: window.speechSynthesis.pending,
+                speaking: window.speechSynthesis.speaking,
+                paused: window.speechSynthesis.paused,
+                voiceCount: window.speechSynthesis.getVoices().length
+            };
+            
+            let html = "<h3>语音状态：</h3>";
+            for (const [key, value] of Object.entries(status)) {
+                html += `<p><strong>${key}:</strong> ${value}</p>`;
+            }
+            statusLog.innerHTML = html;
+            
+            log("语音状态:", status);
+        }
+        
+        // 测试 6: 重置语音引擎
+        function resetSpeechSynthesis() {
+            log("重置语音引擎...");
+            
+            // 取消所有语音
+            window.speechSynthesis.cancel();
+            
+            // 延迟后重新初始化
+            setTimeout(function() {
+                log("语音引擎已重置");
+                alert("语音引擎已重置，请尝试重新测试");
+            }, 1000);
+        }
+        
+        // 页面加载时初始化
+        window.onload = function() {
+            log("页面加载完成，准备测试语音功能...");
+            // 预热语音合成引擎
+            window.speechSynthesis.getVoices();
+        };
+    </script>
+</body>
+</html>

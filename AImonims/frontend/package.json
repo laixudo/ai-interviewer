@@ -1,0 +1,25 @@
+{
+  "name": "ai-interview-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.14.0",
+    "echarts": "^5.5.1",
+    "element-plus": "^2.8.4",
+    "live2d-widget": "^3.1.4",
+    "oh-my-live2d": "^0.19.3",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.8",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.1"
+  }
+}

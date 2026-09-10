@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live2D Avatar - AI面试官</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    #canvas2 {
+      width: 60%;
+      height: auto;
+      margin: 30px auto;
+      display: block;
+      background-color: transparent;
+      cursor: pointer;
+    }
+
+    .avatar-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .speaking-indicator {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      color: #333;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .speaking-indicator.active {
+      opacity: 1;
+    }
+
+    .error-message {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 0, 0, 0.1);
+      padding: 20px 40px;
+      border-radius: 10px;
+      color: #d32f2f;
+      display: none;
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 100;
+    }
+
+    .controls button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.3s;
+    }
+
+    .controls button:hover {
+      background: #667eea;
+      color: white;
+    }
+  </style>
+
+  <script src="/live2d/live2d_core/live2dcubismcore.min.js"></script>
+  <script src="/live2d/live2d_core/live2d.min.js"></script>
+  <script src="/live2d/live2d_core/pixi.min.js"></script>
+</head>
+<body>
+  <div class="avatar-container">
+    <canvas id="canvas2"></canvas>
+  </div>
+
+  <div class="speaking-indicator" id="speakingIndicator">
+    🔊 说话中...
+  </div>
+
+  <div class="controls">
+    <button onclick="triggerExpression('angry')">愤怒</button>
+    <button onclick="triggerExpression('sad')">伤心</button>
+    <button onclick="triggerExpression('happy')">开心</button>
+    <button onclick="triggerMotion('handwave')">挥手</button>
+  </div>
+
+  <div class="error-message" id="errorMessage">
+    Live2D 模型加载失败
+  </div>
+
+  <script>
+    let app = null;
+    let model = null;
+    let speaking = false;
+    let currentExpression = 'f01';
+
+    const modelUrl = '/live2d/live2d_model/chitose/chitose.model3.json';
+
+    async function loadModel() {
+      try {
+        app = new window.PIXI.Application({
+          view: document.getElementById('canvas2'),
+          autoStart: true,
+          backgroundAlpha: 0
+        });
+
+        const models = await window.LIVE2D.Live2DFramework.createModel(modelUrl);
+
+        if (models && models.length > 0) {
+          model = models[0];
+          app.stage.addChild(model);
+
+          model.anchor = new window.PIXI.Point(0.5, 0.5);
+          model.position.set(app.screen.width / 2, app.screen.height / 2);
+          model.scale.set(0.25);
+
+          setupEventListeners();
+          startIdleMotion();
+
+          window.parent.postMessage({ type: 'loaded' }, '*');
+
+          console.log('Live2D Model (chitose) loaded successfully');
+        } else {
+          showError();
+        }
+      } catch (error) {
+        console.error('Failed to load Live2D model:', error);
+        showError();
+      }
+    }
+
+    function setupEventListeners() {
+      const canvas = document.getElementById('canvas2');
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (model) {
+          const rect = canvas.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width;
+          const y = (e.clientY - rect.top) / rect.height;
+
+          model.addParameterValueById('ParamAngleX', (x - 0.5) * 30);
+          model.addParameterValueById('ParamAngleY', (y - 0.5) * 30);
+          model.addParameterValueById('ParamBodyAngleX', (x - 0.5) * 10);
+          model.addParameterValueById('ParamBodyAngleY', (y - 0.5) * 10);
+          model.addParameterValueById('ParamEyeBallX', (x - 0.5) * 2);
+          model.addParameterValueById('ParamEyeBallY', (y - 0.5) * 2);
+        }
+      });
+
+      canvas.addEventListener('click', () => {
+        if (model) {
+          startRandomMotion();
+        }
+      });
+    }
+
+    function startIdleMotion() {
+      setInterval(() => {
+        if (model && !speaking) {
+          const breath = Math.sin(Date.now() / 1000) * 0.5 + 0.5;
+          model.addParameterValueById('ParamBreath', breath);
+        }
+      }, 100);
+
+      setInterval(() => {
+        if (model && !speaking && Math.random() > 0.7) {
+          model.addParameterValueById('ParamEyeLOpen', 0.5);
+          setTimeout(() => {
+            if (model) model.addParameterValueById('ParamEyeLOpen', 1);
+          }, 150);
+        }
+      }, 3000);
+    }
+
+    function startRandomMotion() {
+      if (!model) return;
+
+      const motions = ['idle', 'kime01', 'kime02', 'handwave'];
+      const randomMotion = motions[Math.floor(Math.random() * motions.length)];
+
+      try {
+        model.motion(randomMotion);
+      } catch (e) {
+        console.warn('Motion not found:', randomMotion);
+      }
+    }
+
+    function triggerMotion(motionName) {
+      if (!model) return;
+
+      try {
+        model.motion(motionName);
+      } catch (e) {
+        console.warn('Motion not found:', motionName);
+      }
+    }
+
+    function triggerExpression(expressionName) {
+      if (!model) return;
+
+      const expressionMap = {
+        'angry': 'Angry',
+        'sad': 'Sad',
+        'happy': 'Smile',
+        'surprised': 'Surprised',
+        'normal': 'Normal'
+      };
+
+      const expression = expressionMap[expressionName] || 'Normal';
+
+      try {
+        model.expression(expression);
+        currentExpression = expression;
+      } catch (e) {
+        console.warn('Expression not found:', expression);
+      }
+    }
+
+    function startSpeaking() {
+      speaking = true;
+      document.getElementById('speakingIndicator').classList.add('active');
+
+      if (model) {
+        const mouthOpen = () => {
+          if (!speaking) return;
+
+          model.addParameterValueById('ParamMouthOpenY', 0.5);
+
+          setTimeout(() => {
+            if (model && speaking) {
+              model.addParameterValueById('ParamMouthOpenY', 0);
+              setTimeout(mouthOpen, 100 + Math.random() * 100);
+            }
+          }, 80 + Math.random() * 50);
+        };
+
+        mouthOpen();
+
+        const headBob = () => {
+          if (!speaking) return;
+
+          const angle = Math.sin(Date.now() / 200) * 5;
+          model.addParameterValueById('ParamAngleY', angle);
+
+          if (speaking) {
+            requestAnimationFrame(headBob);
+          }
+        };
+
+        headBob();
+      }
+    }
+
+    function stopSpeaking() {
+      speaking = false;
+      document.getElementById('speakingIndicator').classList.remove('active');
+
+      if (model) {
+        model.addParameterValueById('ParamMouthOpenY', 0);
+        model.addParameterValueById('ParamAngleY', 0);
+      }
+    }
+
+    function showError() {
+      document.getElementById('errorMessage').style.display = 'block';
+      window.parent.postMessage({ type: 'error' }, '*');
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+
+      switch (data.type) {
+        case 'speak':
+          startSpeaking();
+          break;
+
+        case 'stopSpeak':
+          stopSpeaking();
+          break;
+
+        case 'expression':
+          triggerExpression(data.expression);
+          break;
+
+        case 'motion':
+          if (data.motion) {
+            triggerMotion(data.motion);
+          }
+          break;
+
+        case 'setModel':
+          if (data.url) {
+            window.location.reload();
+          }
+          break;
+      }
+    });
+
+    window.parent.postMessage({ type: 'ready' }, '*');
+
+    loadModel();
+  </script>
+</body>
+</html>

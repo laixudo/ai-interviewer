@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+langchain
+chromadb
+openai
+volcengine
+httpx
+python-multipart
+torch
+aiortc
+modelscope
+aiohttp
+websockets
+dashscope

@@ -1,0 +1,7 @@
+/build-*
+!/build-config-tts.json
+!/build-config-soundClone.json
+!/build-config-videoGen.json
+!/build-config-videoGen-short.json
+/config.json
+

@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DOUBAO_API_KEY=${DOUBAO_API_KEY}
+      - DOUBAO_MODEL=${DOUBAO_MODEL}
+      - DOUBAO_API_BASE=${DOUBAO_API_BASE}
+    volumes:
+      - ./backend:/app
+      - ./ai:/app/ai
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
